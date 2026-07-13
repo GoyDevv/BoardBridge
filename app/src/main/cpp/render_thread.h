@@ -38,12 +38,18 @@
  * *synchronous* clearWindow(): the UI thread blocks inside surfaceDestroyed
  * until the render thread has unbound the EGLSurface and released the window.
  *
- * Boardwalk delegated all of this to the framework GLSurfaceView; BoardBridge
- * implements it natively so the whole pipeline (context, surface, swap chain,
- * input) is under our control and targets OpenGL ES 3.2.
+ * Render behavior is a minimal runtime test:
+ *   - SOLID mode (default): clear the surface to a fixed solid color and swap
+ *     buffers every frame. This is the easiest thing to verify via a screenshot
+ *     or a glReadPixels center-pixel readback in logcat.
+ *   - TRIANGLE mode: an OpenGL ES 3.0 spinning triangle (proves the shader
+ *     pipeline). A touch-DOWN or key-DOWN toggles between the two modes, so the
+ *     input path visibly drives rendering and neither branch is dead code.
  */
 class RenderThread {
 public:
+    enum class RenderMode { Solid = 0, Triangle = 1 };
+
     RenderThread();
     ~RenderThread();
 
@@ -67,9 +73,12 @@ public:
 private:
     void threadMain();
     void processWindowChangeLocked(std::unique_lock<std::mutex>& lock);
-    void drainInput(int width, int height);
+    void drainInput();
     void drawFrame(int width, int height);
+    void logFrameStatsIfDue(int width, int height);
     bool initGl();
+    void toggleMode();
+    const char* modeName() const;
 
     std::thread thread_;
     std::mutex mutex_;
@@ -92,13 +101,16 @@ private:
     std::mutex infoMutex_;
     std::string rendererInfo_;
 
-    // Input-driven render state (proves the touch/key path end-to-end).
-    std::atomic<float> focusX_{0.5f};
-    std::atomic<float> focusY_{0.5f};
-    std::atomic<float> hueShift_{0.0f};
+    // Render mode, toggled by input (proves the touch/key path end-to-end).
+    std::atomic<int> renderMode_{static_cast<int>(RenderMode::Solid)};
 
-    // GL demo resources (created once against the context).
+    // Frame timing / stats for logcat-based verification.
     std::chrono::steady_clock::time_point startTime_{};
+    std::chrono::steady_clock::time_point lastStatsTime_{};
+    long long frameCount_ = 0;
+    int framesSinceStats_ = 0;
+
+    // GLES 3.0 triangle resources (created once against the context).
     GLuint program_ = 0;
     GLuint vao_ = 0;
     GLuint vbo_ = 0;

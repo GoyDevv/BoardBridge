@@ -15,12 +15,13 @@
  */
 #include "render_thread.h"
 
-#include <cmath>
-
 #include "log.h"
 
 namespace {
-constexpr float kTwoPi = 6.28318530718f;
+// Fixed solid test color (linear RGBA8 window surface): ~ (0, 158, 166).
+constexpr float kSolidR = 0.00f;
+constexpr float kSolidG = 0.62f;
+constexpr float kSolidB = 0.65f;
 
 GLuint compileShader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
@@ -71,7 +72,6 @@ void RenderThread::requestStop() {
 void RenderThread::setWindow(ANativeWindow* window) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!running_) {
-        // No render thread to take ownership; avoid leaking the reference.
         if (window != nullptr) {
             ANativeWindow_release(window);
         }
@@ -99,7 +99,6 @@ void RenderThread::clearWindow() {
         }
         return;
     }
-    // The Surface is gone: drop any not-yet-bound pending window as well.
     if (pendingWindow_ != nullptr) {
         ANativeWindow_release(pendingWindow_);
         pendingWindow_ = nullptr;
@@ -108,7 +107,6 @@ void RenderThread::clearWindow() {
     clearRequested_ = true;
     clearAck_ = false;
     cond_.notify_all();
-    // Block until the render thread has released the window (or is stopping).
     cond_.wait(lock, [this] { return clearAck_ || !running_; });
 }
 
@@ -128,6 +126,16 @@ void RenderThread::setPaused(bool paused) {
 std::string RenderThread::rendererInfo() {
     std::lock_guard<std::mutex> lock(infoMutex_);
     return rendererInfo_;
+}
+
+void RenderThread::toggleMode() {
+    const int solid = static_cast<int>(RenderMode::Solid);
+    const int triangle = static_cast<int>(RenderMode::Triangle);
+    renderMode_.store(renderMode_.load() == solid ? triangle : solid);
+}
+
+const char* RenderThread::modeName() const {
+    return renderMode_.load() == static_cast<int>(RenderMode::Solid) ? "SOLID" : "TRIANGLE";
 }
 
 void RenderThread::processWindowChangeLocked(std::unique_lock<std::mutex>& lock) {
@@ -173,6 +181,9 @@ void RenderThread::processWindowChangeLocked(std::unique_lock<std::mutex>& lock)
 
 void RenderThread::threadMain() {
     startTime_ = std::chrono::steady_clock::now();
+    lastStatsTime_ = startTime_;
+    frameCount_ = 0;
+    framesSinceStats_ = 0;
 
     if (!egl_.initialize()) {
         LOGE("EGL initialization failed; render thread exiting");
@@ -206,7 +217,7 @@ void RenderThread::threadMain() {
         const int height = height_;
         lock.unlock();
 
-        drainInput(width, height);
+        drainInput();
         egl_.makeCurrent();
         drawFrame(width, height);
         egl_.swapBuffers();  // paces to the display refresh (vsync)
@@ -214,7 +225,6 @@ void RenderThread::threadMain() {
         lock.lock();
     }
 
-    // Teardown while still holding the lock for the shared window pointers.
     egl_.destroyWindowSurface();
     egl_.makeNothingCurrent();
     if (currentWindow_ != nullptr) {
@@ -229,18 +239,17 @@ void RenderThread::threadMain() {
     egl_.release();
 }
 
-void RenderThread::drainInput(int width, int height) {
-    InputEvent event;
-    while (input_.pop(event)) {
-        if (event.type == InputType::Touch) {
-            if (width > 0 && height > 0) {
-                focusX_.store(event.x / static_cast<float>(width));
-                focusY_.store(event.y / static_cast<float>(height));
-            }
-        } else {  // Key
-            // KeyEvent.ACTION_DOWN == 0; shift the palette on each key-down.
-            if (event.action == 0) {
-                hueShift_.store(hueShift_.load() + 0.15f);
+void RenderThread::drainInput() {
+    InputEvent e;
+    while (input_.pop(e)) {
+        // A primary DOWN (touch ACTION_DOWN == 0 or key ACTION_DOWN == 0)
+        // toggles the render mode, so input visibly drives rendering.
+        if (e.action == 0) {
+            toggleMode();
+            if (e.type == InputType::Touch) {
+                LOGI("touch DOWN at (%.0f, %.0f) -> render mode = %s", e.x, e.y, modeName());
+            } else {
+                LOGI("key DOWN code=%d -> render mode = %s", e.code, modeName());
             }
         }
     }
@@ -292,7 +301,6 @@ bool RenderThread::initGl() {
     }
     uAngleLoc_ = glGetUniformLocation(program_, "uAngle");
 
-    // Interleaved position(x, y) + color(r, g, b).
     static const GLfloat vertices[] = {
             0.0f,  0.6f, 1.0f, 0.25f, 0.25f,
             -0.6f, -0.5f, 0.25f, 1.0f, 0.25f,
@@ -318,29 +326,51 @@ void RenderThread::drawFrame(int width, int height) {
         glOk_ = initGl();
         glTried_ = true;
     }
-
-    const float fx = focusX_.load();
-    const float fy = focusY_.load();
-    const float hue = hueShift_.load();
-    const float t =
-            std::chrono::duration<float>(std::chrono::steady_clock::now() - startTime_).count();
-
-    // Clear color animates over time and responds to the last touch + key hue.
-    const float r = 0.5f + 0.5f * std::sin(t + fx * kTwoPi + hue);
-    const float g = 0.5f + 0.5f * std::sin(t * 0.7f + fy * kTwoPi + hue + 2.094f);
-    const float b = 0.5f + 0.5f * std::sin(t * 1.3f + hue + 4.188f);
-
     if (width > 0 && height > 0) {
         glViewport(0, 0, width, height);
     }
-    glClearColor(r, g, b, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    if (glOk_) {
-        glUseProgram(program_);
-        glUniform1f(uAngleLoc_, t);
-        glBindVertexArray(vao_);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
-        glBindVertexArray(0);
+    const bool triangle = renderMode_.load() == static_cast<int>(RenderMode::Triangle);
+    if (triangle) {
+        glClearColor(0.05f, 0.06f, 0.09f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        if (glOk_) {
+            const float t = std::chrono::duration<float>(
+                    std::chrono::steady_clock::now() - startTime_).count();
+            glUseProgram(program_);
+            glUniform1f(uAngleLoc_, t);
+            glBindVertexArray(vao_);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            glBindVertexArray(0);
+        }
+    } else {
+        // SOLID render test: fixed color, cleared and swapped every frame.
+        glClearColor(kSolidR, kSolidG, kSolidB, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
+
+    ++frameCount_;
+    ++framesSinceStats_;
+    if (frameCount_ == 1) {
+        LOGI("First frame rendered (%dx%d, mode=%s)", width, height, modeName());
+    }
+    logFrameStatsIfDue(width, height);
+}
+
+void RenderThread::logFrameStatsIfDue(int width, int height) {
+    const auto now = std::chrono::steady_clock::now();
+    const float dt = std::chrono::duration<float>(now - lastStatsTime_).count();
+    if (dt < 1.0f) {
+        return;
+    }
+    GLubyte px[4] = {0, 0, 0, 0};
+    if (width > 0 && height > 0) {
+        // Read the back buffer (post-draw, pre-swap): the center pixel.
+        glReadPixels(width / 2, height / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    }
+    const float fps = static_cast<float>(framesSinceStats_) / dt;
+    LOGI("frames=%lld fps=%.1f mode=%s center_pixel_RGBA=(%d,%d,%d,%d)",
+         frameCount_, fps, modeName(), px[0], px[1], px[2], px[3]);
+    lastStatsTime_ = now;
+    framesSinceStats_ = 0;
 }

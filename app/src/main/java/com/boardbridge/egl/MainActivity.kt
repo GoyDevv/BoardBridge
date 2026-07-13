@@ -16,6 +16,7 @@
 package com.boardbridge.egl
 
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.core.view.WindowCompat
@@ -32,6 +33,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.i(TAG, "MainActivity onCreate")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Immersive, edge-to-edge fullscreen for the render surface.
@@ -45,6 +47,21 @@ class MainActivity : ComponentActivity() {
         surfaceView = BridgeSurfaceView(this)
         setContentView(surfaceView)
         surfaceView.requestFocus()
+
+        // Exercise the native getRendererInfo() JNI entry point: the EGL context
+        // is created asynchronously on the render thread, so poll briefly until
+        // it reports GL_VENDOR / GL_RENDERER / GL_VERSION, then log it.
+        logRendererInfoWhenReady(attempt = 0)
+    }
+
+    private fun logRendererInfoWhenReady(attempt: Int) {
+        val info = NativeBridge.getRendererInfo()
+        when {
+            info.isNotEmpty() -> Log.i(TAG, "Renderer info: $info")
+            attempt < MAX_RENDERER_INFO_ATTEMPTS ->
+                surfaceView.postDelayed({ logRendererInfoWhenReady(attempt + 1) }, 300L)
+            else -> Log.w(TAG, "Renderer info still empty after $attempt attempts")
+        }
     }
 
     override fun onResume() {
@@ -60,5 +77,10 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         NativeBridge.onDestroy()
         super.onDestroy()
+    }
+
+    private companion object {
+        const val TAG = "BoardBridge"
+        const val MAX_RENDERER_INFO_ATTEMPTS = 20
     }
 }

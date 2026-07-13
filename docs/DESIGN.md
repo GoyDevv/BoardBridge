@@ -116,17 +116,28 @@ cleared, or the thread stops.
 ### Input dispatch
 `BridgeSurfaceView` forwards touch (per-pointer for MOVE batches) and key events
 through JNI into a bounded `InputQueue`. The render thread drains the queue once
-per frame. In this demo, touch position steers the animated clear color and key
-presses shift the palette hue — proving the whole input path end-to-end. The
-BACK key is deliberately passed through to the system so the user is never
-trapped.
+per frame. A primary **DOWN** (touch `ACTION_DOWN` or key `ACTION_DOWN`) toggles
+the render mode (SOLID ⇄ TRIANGLE) and is logged to logcat, so the input path
+visibly drives rendering and is observable end-to-end. The BACK key is
+deliberately passed through to the system so the user is never trapped.
 
-### The render demo
-After binding the surface the render thread compiles a minimal GLES 3.00 shader
-program and draws a spinning colored triangle over an animated clear color. If
-shader compilation fails on some driver, it gracefully falls back to the
-animated clear alone — either way the `Surface → EGLSurface` binding, context,
-and swap chain are exercised.
+### The render test
+The default render mode is a **minimal solid-color test**: every frame clears
+the surface to a fixed solid color (~ RGBA `0, 158, 166`) and calls
+`eglSwapBuffers`. This is trivial to verify:
+
+- **logcat**: once per second the render thread logs `frames`, `fps`, and a
+  `glReadPixels` **center-pixel readback** — in SOLID mode that pixel equals the
+  clear color, which is direct proof that real pixels were rendered (used for
+  on-device verification, where `screencap` is blocked by SurfaceFlinger).
+- **screenshot**: on an emulator the fullscreen solid color is captured with
+  `adb exec-out screencap`.
+
+A DOWN event switches to **TRIANGLE mode**, which compiles a GLES 3.00 shader
+program and draws a spinning colored triangle (proving the shader pipeline). If
+shader compilation fails on some driver it falls back to the clear alone. The
+`MainActivity` also calls `NativeBridge.getRendererInfo()` (retrying until the
+context exists) and logs `GL_VENDOR / GL_RENDERER / GL_VERSION`.
 
 ---
 
@@ -153,3 +164,23 @@ See the repository `README.md` for details; in short, the canonical build is
 `./gradlew :app:assembleDebug`, executed on CI (GitHub Actions, ubuntu runner)
 because the primary development device here is an aarch64 Android phone whose
 downloaded SDK build-tools are x86-64 and cannot execute locally.
+
+## 6. Verifying that it renders
+
+Two complementary checks confirm the bridge actually renders:
+
+1. **On-device (real Mali-G52 / Helio G85).** The CI-built debug APK is installed
+   with `pm install` and launched with `am start`; `logcat` (filtered to the
+   `BoardBridge` tag) shows `Surface bound. GL_VENDOR=... GL_RENDERER=Mali-G52
+   ... GL_VERSION=...`, `First frame rendered`, the per-second `fps` line, and
+   the `glReadPixels` center-pixel readback matching the solid clear color. This
+   is the authoritative proof because it runs on the real target GPU.
+   (`screencap` is blocked for this shell context, so pixel proof comes from the
+   in-app `glReadPixels` readback in logcat rather than a system screenshot.)
+
+2. **CI emulator (x86_64, KVM-accelerated).** `.github/workflows/render-test.yml`
+   builds the APK, boots a headless emulator, installs and launches the app,
+   then uploads `adb logcat` and an `adb exec-out screencap` PNG as artifacts —
+   a reproducible visual screenshot of the solid color. An aarch64 emulator is
+   impractical on GitHub's x86-64 runners (no KVM for ARM guests), so the APK's
+   bundled `x86_64` ABI is used here; the arm64 path is proven on-device above.

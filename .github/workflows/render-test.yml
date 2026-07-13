@@ -1,0 +1,78 @@
+name: Render Test (emulator)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK platform, build-tools, NDK and CMake
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Build debug APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run on emulator and capture logcat + screenshot
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          emulator-options: -no-window -no-snapshot -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -e
+            mkdir -p artifacts
+            adb wait-for-device
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb logcat -c
+            adb shell am start -n com.boardbridge.egl/.MainActivity
+            # Give the surface time to be created and several frames to render.
+            sleep 15
+            adb exec-out screencap -p > artifacts/screenshot.png
+            adb logcat -d > artifacts/logcat-full.txt
+            adb logcat -d -s BoardBridge:V > artifacts/logcat-boardbridge.txt
+            echo "===== BoardBridge logcat ====="
+            cat artifacts/logcat-boardbridge.txt
+            echo "===== screenshot size ====="
+            ls -l artifacts/screenshot.png
+            # Fail the job if the render loop never reported a frame.
+            grep -q "First frame rendered" artifacts/logcat-boardbridge.txt \
+              || { echo "ERROR: no 'First frame rendered' log found"; exit 1; }
+
+      - name: Upload render evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-test-evidence
+          path: artifacts/
+          if-no-files-found: warn
