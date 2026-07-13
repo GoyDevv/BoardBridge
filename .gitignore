@@ -1,0 +1,25 @@
+# Gradle
+.gradle/
+build/
+/app/build/
+
+# Native build intermediates
+.cxx/
+/app/.cxx/
+.externalNativeBuild/
+
+# Local config (machine-specific SDK path)
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keystores / secrets
+*.jks
+*.keystore

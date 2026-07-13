@@ -1,0 +1,40 @@
+BoardBridge
+Copyright 2026 The BoardBridge Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------------------
+Lineage and credits
+--------------------------------------------------------------------------------
+
+BoardBridge modernizes, in concept, the Surface-to-OpenGL approach of Boardwalk,
+a Minecraft: Java Edition launcher for Android by Zhuowei Zhang (zhuowei).
+
+    Boardwalk
+    Copyright Zhuowei Zhang and contributors
+    Source:  https://github.com/zhuowei/Boardwalk
+    License: Apache License, Version 2.0
+
+Boardwalk bound an Android Surface to an OpenGL context by subclassing the
+framework android.opengl.GLSurfaceView and handling the surface lifecycle via
+SurfaceHolder callbacks. BoardBridge takes that concept and reimplements it as a
+native ANativeWindow -> EGL -> OpenGL ES 3.2 bridge. No substantial Boardwalk
+source is reproduced here; the Apache-2.0 license and this attribution are
+carried forward to honor that lineage.
+
+Portions of the original Boardwalk headers carry the following notice, which is
+preserved here for attribution:
+
+    Copyright (C) 2008 The Android Open Source Project
+    Licensed under the Apache License, Version 2.0.
+
+--------------------------------------------------------------------------------
+Conceptual reference (no code used)
+--------------------------------------------------------------------------------
+
+ZalithLauncher2 (https://github.com/ZalithLauncher/ZalithLauncher2), licensed
+under the GNU General Public License v3.0, was consulted ONLY as a high-level
+conceptual reference for how launchers in this lineage structure their
+Surface/EGL handoff and input dispatch. No ZalithLauncher2 source code was
+copied, adapted, or incorporated into BoardBridge. BoardBridge's implementation
+is original and is distributed under the Apache License, Version 2.0.

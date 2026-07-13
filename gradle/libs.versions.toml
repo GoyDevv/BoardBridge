@@ -1,0 +1,14 @@
+[versions]
+# AGP 8.7.x officially supports compileSdk 35 (Android 15) and requires Gradle 8.9+ / JDK 17.
+agp = "8.7.2"
+kotlin = "2.0.21"
+coreKtx = "1.13.1"
+activity = "1.9.3"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-activity-ktx = { group = "androidx.activity", name = "activity-ktx", version.ref = "activity" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
