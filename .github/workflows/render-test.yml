@@ -56,8 +56,20 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb logcat -c
             adb shell am start -n com.boardbridge.egl/.MainActivity
-            sleep 15
-            adb exec-out screencap -p > artifacts/screenshot.png
+            sleep 8
+            adb exec-out screencap -p > artifacts/screenshot-solid.png
+            adb shell input tap 1100 540
+            sleep 1
+            adb shell input keyevent 30
+            sleep 1
+            adb exec-out screencap -p > artifacts/screenshot-after-input.png
+            adb shell input keyevent KEYCODE_HOME
+            sleep 3
+            adb shell am start -n com.boardbridge.egl/.MainActivity
+            sleep 5
+            adb exec-out screencap -p > artifacts/screenshot-after-resume.png
+            adb shell input keyevent KEYCODE_BACK
+            sleep 2
             adb logcat -d > artifacts/logcat-full.txt
             adb logcat -d -s BoardBridge:V > artifacts/logcat-boardbridge.txt
             echo "===== BoardBridge logcat ====="

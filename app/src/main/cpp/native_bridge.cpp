@@ -47,6 +47,7 @@ extern "C" {
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onSurfaceCreated(JNIEnv* env, jobject /*thiz*/,
                                                        jobject surface) {
+    LOGI("JNI onSurfaceCreated");
     // Acquires one reference to the underlying ANativeWindow.
     ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
     if (window == nullptr) {
@@ -61,6 +62,7 @@ Java_com_boardbridge_egl_NativeBridge_onSurfaceCreated(JNIEnv* env, jobject /*th
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onSurfaceChanged(JNIEnv* /*env*/, jobject /*thiz*/,
                                                        jint width, jint height) {
+    LOGI("JNI onSurfaceChanged %dx%d", width, height);
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_renderThread) {
         g_renderThread->setSize(width, height);
@@ -69,6 +71,7 @@ Java_com_boardbridge_egl_NativeBridge_onSurfaceChanged(JNIEnv* /*env*/, jobject 
 
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onSurfaceDestroyed(JNIEnv* /*env*/, jobject /*thiz*/) {
+    LOGI("JNI onSurfaceDestroyed");
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_renderThread) {
         g_renderThread->clearWindow();  // blocks until the window is released
@@ -77,6 +80,7 @@ Java_com_boardbridge_egl_NativeBridge_onSurfaceDestroyed(JNIEnv* /*env*/, jobjec
 
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onResume(JNIEnv* /*env*/, jobject /*thiz*/) {
+    LOGI("JNI onResume");
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_renderThread) {
         g_renderThread->setPaused(false);
@@ -85,6 +89,7 @@ Java_com_boardbridge_egl_NativeBridge_onResume(JNIEnv* /*env*/, jobject /*thiz*/
 
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onPause(JNIEnv* /*env*/, jobject /*thiz*/) {
+    LOGI("JNI onPause");
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_renderThread) {
         g_renderThread->setPaused(true);
@@ -93,6 +98,7 @@ Java_com_boardbridge_egl_NativeBridge_onPause(JNIEnv* /*env*/, jobject /*thiz*/)
 
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onDestroy(JNIEnv* /*env*/, jobject /*thiz*/) {
+    LOGI("JNI onDestroy");
     std::unique_ptr<RenderThread> toStop;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
