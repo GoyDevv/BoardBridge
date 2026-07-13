@@ -56,18 +56,13 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb logcat -c
             adb shell am start -n com.boardbridge.egl/.MainActivity
-            # Give the surface time to be created and several frames to render.
             sleep 15
             adb exec-out screencap -p > artifacts/screenshot.png
             adb logcat -d > artifacts/logcat-full.txt
             adb logcat -d -s BoardBridge:V > artifacts/logcat-boardbridge.txt
             echo "===== BoardBridge logcat ====="
             cat artifacts/logcat-boardbridge.txt
-            echo "===== screenshot size ====="
-            ls -l artifacts/screenshot.png
-            # Fail the job if the render loop never reported a frame.
-            grep -q "First frame rendered" artifacts/logcat-boardbridge.txt \
-              || { echo "ERROR: no 'First frame rendered' log found"; exit 1; }
+            grep -q "First frame rendered" artifacts/logcat-boardbridge.txt || (echo "ERROR: no 'First frame rendered' log found" && exit 1)
 
       - name: Upload render evidence
         if: always()

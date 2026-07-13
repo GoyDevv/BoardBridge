@@ -167,20 +167,27 @@ downloaded SDK build-tools are x86-64 and cannot execute locally.
 
 ## 6. Verifying that it renders
 
-Two complementary checks confirm the bridge actually renders:
+The render test is verified on a **CI x86_64 emulator**, with the arm64 target
+proven by cross-compilation:
 
-1. **On-device (real Mali-G52 / Helio G85).** The CI-built debug APK is installed
-   with `pm install` and launched with `am start`; `logcat` (filtered to the
-   `BoardBridge` tag) shows `Surface bound. GL_VENDOR=... GL_RENDERER=Mali-G52
-   ... GL_VERSION=...`, `First frame rendered`, the per-second `fps` line, and
-   the `glReadPixels` center-pixel readback matching the solid clear color. This
-   is the authoritative proof because it runs on the real target GPU.
-   (`screencap` is blocked for this shell context, so pixel proof comes from the
-   in-app `glReadPixels` readback in logcat rather than a system screenshot.)
+- **CI emulator (x86_64, KVM-accelerated).** `.github/workflows/render-test.yml`
+  builds the APK, boots a headless emulator, installs and launches the app, then
+  uploads `adb logcat` plus an `adb exec-out screencap` PNG. The BoardBridge
+  logcat shows `Surface bound. GL_RENDERER=... (SwiftShader) ... GL_VERSION=
+  OpenGL ES 3.0`, `First frame rendered`, `Renderer info: ...` (the
+  `getRendererInfo()` call), and a per-second line such as
+  `frames=40 fps=24.7 mode=SOLID center_pixel_RGBA=(0,158,166,255)`. That
+  `glReadPixels` center-pixel readback `(0,158,166)` exactly matches the solid
+  clear color — authoritative pixel proof. The screenshot PNG shows the same
+  uniform solid fill; its captured value differs slightly because `screencap`
+  passes through the display color-management path while `glReadPixels` reads the
+  raw framebuffer.
 
-2. **CI emulator (x86_64, KVM-accelerated).** `.github/workflows/render-test.yml`
-   builds the APK, boots a headless emulator, installs and launches the app,
-   then uploads `adb logcat` and an `adb exec-out screencap` PNG as artifacts —
-   a reproducible visual screenshot of the solid color. An aarch64 emulator is
-   impractical on GitHub's x86-64 runners (no KVM for ARM guests), so the APK's
-   bundled `x86_64` ABI is used here; the arm64 path is proven on-device above.
+- **arm64 (real Mali-G52 / Helio G85).** The `arm64-v8a` `libboardbridge.so`
+  cross-compiles and links (verified: `ELF ... arm64 ... built by NDK r27c`,
+  exporting all nine `Java_com_boardbridge_egl_NativeBridge_*` symbols and
+  linking `libEGL`/`libGLESv3`/`libandroid`). Automated `pm install` / `am start`
+  from the development proot are denied by Android (that shell context lacks the
+  `INSTALL_PACKAGES` / shell-uid privileges — only read-only `logcat` and
+  `pm list` are permitted), so rendering is verified on the emulator above and
+  the APK can be sideloaded manually to run on the Mali GPU.
