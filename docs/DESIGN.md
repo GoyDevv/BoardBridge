@@ -4,9 +4,7 @@ BoardBridge is a small, self-contained Android app that binds an Android
 `Surface` to an OpenGL ES 3.2 context **in native code** and drives it from a
 dedicated render thread, with full surface-lifecycle handling and input
 dispatch. It modernizes the Surface-to-GL approach used by
-[Boardwalk](https://github.com/zhuowei/Boardwalk) (by zhuowei, Apache-2.0) and
-uses [ZalithLauncher2](https://github.com/ZalithLauncher/ZalithLauncher2)
-(GPL-3.0) purely as a *conceptual* reference.
+[Boardwalk](https://github.com/zhuowei/Boardwalk) (by zhuowei, Apache-2.0).
 
 ---
 
@@ -35,12 +33,13 @@ conceptual seed BoardBridge takes and rebuilds natively.
 
 ---
 
-## 2. ZalithLauncher2 — its approach in plain English (conceptual reference only)
+## 2. How Android GL launchers bridge a Surface (background)
 
-> No ZalithLauncher2 source was copied into this project. The following is a
-> high-level, plain-English description of how launchers in this lineage
-> (Boardwalk → PojavLauncher → FoldCraftLauncher → ZalithLauncher) structure
-> their rendering bridge, written from general knowledge of the architecture.
+> The following is a high-level, plain-English description of the well-known
+> pattern that Android OpenGL game launchers use to get a desktop-style GL
+> workload onto an Android `Surface`, written from general knowledge of the
+> architecture. It is background / prior-art only; BoardBridge's implementation
+> is original.
 
 - **The Surface is just a canvas handed to native code.** The launcher shows a
   `SurfaceView` (or `TextureView`). When Android creates the underlying
@@ -65,9 +64,9 @@ conceptual seed BoardBridge takes and rebuilds natively.
   Touch, hardware keyboard, and mouse events are intercepted and fed to a custom
   GLFW/LWJGL bridge the game reads. On top of that sit a virtual mouse/cursor,
   on-screen touch controls, gamepad mapping, and IME text input — plus a
-  control-mapping editor. ZalithLauncher2 specifically pairs this with a modern
-  Kotlin + Jetpack Compose UI, Android 15 support, and runtime selection of the
-  Java runtime and renderer.
+  control-mapping editor. Modern launchers pair this with a Kotlin/Compose UI,
+  current-Android support, and runtime selection of the Java runtime and
+  renderer.
 
 **What BoardBridge borrows conceptually:** the “hand the raw Surface to native,
 own EGL there, run a dedicated render thread, and marshal a thread-safe surface

@@ -7,18 +7,16 @@ A modern, native **EGL / Surface bridge** for Android: it binds an Android
 render thread, and handles the full surface lifecycle and input dispatch.
 
 BoardBridge modernizes the Surface-to-GL approach of
-**[Boardwalk](https://github.com/zhuowei/Boardwalk)** by **zhuowei** (Apache-2.0)
-and uses **[ZalithLauncher2](https://github.com/ZalithLauncher/ZalithLauncher2)**
-(GPL-3.0) purely as a *conceptual* reference. It targets current Android
-(**Android 15 / API 35**) and Mali-G52 / Helio G85 class devices.
+**[Boardwalk](https://github.com/zhuowei/Boardwalk)** by **zhuowei** (Apache-2.0).
+It targets current Android (**Android 15 / API 35**) and Mali-G52 / Helio G85
+class devices.
 
 > **Note on Boardwalk:** the original (archived) Boardwalk did not hand-write an
 > EGL bridge — it subclassed the framework `GLSurfaceView` and let the framework
 > bind the `Surface` and manage EGL, while its native code did Dalvik VM tweaks.
 > BoardBridge takes that *GLSurfaceView pattern* as the conceptual seed and
 > rebuilds it natively. See [`docs/DESIGN.md`](docs/DESIGN.md) for the full
-> analysis, the plain-English ZalithLauncher2 write-up, and the modernization
-> table.
+> analysis and the modernization table.
 
 ## What it does
 
@@ -87,8 +85,6 @@ will fetch NDK r27c and CMake 3.22.1 as needed.
 - **Boardwalk** by [zhuowei](https://github.com/zhuowei) — Apache-2.0. The
   conceptual origin of the Surface/GL bridge modernized here.
 - **The Android Open Source Project** — Apache-2.0 (original Boardwalk headers).
-- **ZalithLauncher2** — GPL-3.0, used only as a conceptual reference; **no code
-  was copied**.
 
 BoardBridge is licensed under the **Apache License, Version 2.0**. See
 [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
