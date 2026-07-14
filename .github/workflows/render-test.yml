@@ -59,7 +59,7 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb logcat -c
             adb shell am start -n com.boardbridge.egl/.MainActivity
-            for i in $(seq 1 60); do adb logcat -d -s JVMOut:V BoardBridge:V | grep -q "Hello from JVM" && break; sleep 3; done
+            for i in $(seq 1 80); do adb logcat -d -s JVMOut:V BoardBridge:V | grep -q "Hello from JVM" && break; sleep 3; done
             adb logcat -d -s BoardBridge:V JVMOut:V > artifacts/logcat-jvm.txt
             adb exec-out screencap -p > artifacts/screenshot-solid.png
             adb shell input tap 540 1170

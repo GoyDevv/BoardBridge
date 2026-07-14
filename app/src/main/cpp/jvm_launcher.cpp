@@ -109,6 +109,22 @@ Java_com_boardbridge_egl_NativeBridge_runJvmHello(JNIEnv* env, jobject /*thiz*/,
         return -2;
     }
 
+    // Preload core JRE libraries with RTLD_GLOBAL so the JVM's lazily-loaded
+    // libraries (libnio -> libnet -> libjava, etc.) can resolve their DT_NEEDED
+    // sonames from the global group. On Android the app's linker namespace does
+    // not include the JRE lib dir, so LD_LIBRARY_PATH alone is insufficient.
+    const char* preloadLibs[] = {"libverify.so", "libjava.so", "libjimage.so",
+                                 "libzip.so", "libnet.so", "libnio.so"};
+    for (const char* name : preloadLibs) {
+        const std::string p = jreDir + "/lib/" + name;
+        void* h = dlopen(p.c_str(), RTLD_GLOBAL | RTLD_NOW);
+        if (h == nullptr) {
+            LOGE("jvm: preload %s failed: %s", name, dlerror());
+        } else {
+            LOGI("jvm: preloaded %s", name);
+        }
+    }
+
     const std::string optHome = "-Djava.home=" + jreDir;
     const std::string optClasspath = "-Djava.class.path=" + classpath;
     const std::string optLibPath = "-Djava.library.path=" + libDir;
