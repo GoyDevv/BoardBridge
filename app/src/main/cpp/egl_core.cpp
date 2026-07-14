@@ -143,6 +143,12 @@ bool EglCore::swapBuffers() {
     return eglSwapBuffers(display_, surface_) == EGL_TRUE;
 }
 
+void EglCore::setSwapInterval(int interval) {
+    if (display_ != EGL_NO_DISPLAY) {
+        eglSwapInterval(display_, interval);
+    }
+}
+
 int EglCore::surfaceWidth() const {
     EGLint value = 0;
     if (surface_ != EGL_NO_SURFACE) {

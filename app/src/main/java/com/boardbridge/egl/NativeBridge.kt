@@ -18,54 +18,47 @@ package com.boardbridge.egl
 import android.view.Surface
 
 /**
- * JNI bridge to the native EGL/Surface renderer implemented in
- * `app/src/main/cpp` and packaged as `libboardbridge.so`.
- *
- * This is the Java/Kotlin half of BoardBridge's modernization of the
- * Surface-to-OpenGL binding that Boardwalk (by zhuowei) delegated to the
- * framework `GLSurfaceView`. Here the raw [Surface] is handed to native code
- * which owns the EGL context, render thread, and input queue.
+ * JNI bridge to the native passive provider (libboardbridge) and the GLFW shim
+ * (libglfw). BoardBridge no longer renders on its own: these calls feed the
+ * native bridge core (window/size/input/lifecycle), and a native game thread
+ * (started by [startClient]) drives the GLFW shim to draw — the same way an
+ * LWJGL/Minecraft launcher would.
  */
 object NativeBridge {
 
     init {
+        // libboardbridge depends on libglfw; load the dependency first.
+        System.loadLibrary("glfw")
         System.loadLibrary("boardbridge")
     }
 
-    /** A [Surface] became available; its [android.view.SurfaceHolder] is alive. */
+    /** Spawn the native game thread (drives the GLFW shim). Idempotent. */
+    external fun startClient()
+
+    /** Request the game thread to stop and join it. */
+    external fun stopClient()
+
+    /** A Surface became available; hand it to the bridge core. */
     external fun onSurfaceCreated(surface: Surface)
 
-    /** The surface's size (and/or format) changed. */
+    /** The surface size/format changed. */
     external fun onSurfaceChanged(width: Int, height: Int)
 
-    /**
-     * The surface is being destroyed. This call blocks until the native render
-     * thread has unbound and released the underlying `ANativeWindow`, which
-     * prevents a use-after-free once Android reclaims the buffer.
-     */
+    /** The surface is being destroyed; blocks until the game thread releases it. */
     external fun onSurfaceDestroyed()
 
-    /** Resume the native render loop (activity foregrounded). */
+    /** Resume rendering (activity foregrounded). */
     external fun onResume()
 
-    /** Pause the native render loop (activity backgrounded). */
+    /** Pause rendering (activity backgrounded). */
     external fun onPause()
 
-    /** Stop and join the native render thread and tear down EGL. */
-    external fun onDestroy()
-
-    /**
-     * Forward one touch pointer sample.
-     * @param action the [android.view.MotionEvent] masked action.
-     */
+    /** Forward one touch pointer sample (action = MotionEvent masked action). */
     external fun onTouch(pointerId: Int, action: Int, x: Float, y: Float, eventTimeMs: Long)
 
-    /**
-     * Forward a key event.
-     * @param action [android.view.KeyEvent.ACTION_DOWN] or `ACTION_UP`.
-     */
+    /** Forward a key event (action = KeyEvent.ACTION_DOWN/UP). */
     external fun onKey(keyCode: Int, action: Int, unicodeChar: Int, eventTimeMs: Long)
 
-    /** GL_VENDOR / GL_RENDERER / GL_VERSION once the context exists, else "". */
+    /** GL_VENDOR / GL_RENDERER / GL_VERSION once the game thread has a context. */
     external fun getRendererInfo(): String
 }

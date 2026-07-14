@@ -2,7 +2,7 @@ name: Render Test (emulator)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "feat/**" ]
   workflow_dispatch:
 
 permissions:

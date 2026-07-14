@@ -48,9 +48,12 @@ class MainActivity : ComponentActivity() {
         setContentView(surfaceView)
         surfaceView.requestFocus()
 
-        // Exercise the native getRendererInfo() JNI entry point: the EGL context
-        // is created asynchronously on the render thread, so poll briefly until
-        // it reports GL_VENDOR / GL_RENDERER / GL_VERSION, then log it.
+        // Start the native game thread (drives the GLFW shim). It blocks until
+        // the SurfaceView's surface is created, then renders through libglfw.
+        NativeBridge.startClient()
+
+        // Poll the native getRendererInfo() JNI entry point until the game
+        // thread has a GL context, then log GL_VENDOR / GL_RENDERER / GL_VERSION.
         logRendererInfoWhenReady(attempt = 0)
     }
 
@@ -75,7 +78,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        NativeBridge.onDestroy()
+        NativeBridge.stopClient()
         super.onDestroy()
     }
 

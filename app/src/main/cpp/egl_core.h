@@ -26,7 +26,7 @@
  * but it targets OpenGL ES 3.x (Mali-G52 supports ES 3.2).
  *
  * Not thread-safe by itself: it is expected to be used from a single render
- * thread. RenderThread provides that guarantee.
+ * thread. The GLFW shim / game thread provides that guarantee.
  */
 class EglCore {
 public:
@@ -48,6 +48,7 @@ public:
     bool makeCurrent();
     void makeNothingCurrent();
     bool swapBuffers();
+    void setSwapInterval(int interval);
 
     bool hasContext() const { return context_ != EGL_NO_CONTEXT; }
     bool hasSurface() const { return surface_ != EGL_NO_SURFACE; }

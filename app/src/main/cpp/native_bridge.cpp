@@ -13,131 +13,114 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * JNI glue for com.boardbridge.egl.NativeBridge. This is the native half of
- * BoardBridge's modernization of Boardwalk's Surface-to-GL binding: the raw
- * android.view.Surface is turned into an ANativeWindow and handed to a
- * dedicated native render thread that owns the EGL context.
+ * JNI glue for com.boardbridge.egl.NativeBridge. BoardBridge is now a PASSIVE
+ * provider: these entry points only feed the bridge core (window/size/input/
+ * lifecycle). The actual rendering runs on a separate game thread that drives
+ * the GLFW shim (game_client_run) — the ownership model an LWJGL/Minecraft
+ * launcher requires.
  */
 #include <jni.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
 
-#include <memory>
 #include <mutex>
+#include <thread>
 
+#include "bridge_core.h"
+#include "game_client.h"
 #include "log.h"
-#include "render_thread.h"
 
 namespace {
-std::unique_ptr<RenderThread> g_renderThread;
-std::mutex g_mutex;
-
-// Must be called with g_mutex held.
-RenderThread* ensureRenderThreadLocked() {
-    if (!g_renderThread) {
-        g_renderThread = std::make_unique<RenderThread>();
-        g_renderThread->start();
-    }
-    return g_renderThread.get();
-}
+std::mutex g_threadMutex;
+std::thread g_gameThread;
+bool g_started = false;
 }  // namespace
 
 extern "C" {
 
 JNIEXPORT void JNICALL
+Java_com_boardbridge_egl_NativeBridge_startClient(JNIEnv* /*env*/, jobject /*thiz*/) {
+    std::lock_guard<std::mutex> lock(g_threadMutex);
+    if (g_started) {
+        return;
+    }
+    g_started = true;
+    LOGI("JNI startClient: spawning game thread");
+    g_gameThread = std::thread(&game_client_run);
+}
+
+JNIEXPORT void JNICALL
+Java_com_boardbridge_egl_NativeBridge_stopClient(JNIEnv* /*env*/, jobject /*thiz*/) {
+    LOGI("JNI stopClient");
+    bridge::requestClose();
+    std::thread toJoin;
+    {
+        std::lock_guard<std::mutex> lock(g_threadMutex);
+        if (g_gameThread.joinable()) {
+            toJoin = std::move(g_gameThread);
+        }
+        g_started = false;
+    }
+    if (toJoin.joinable()) {
+        toJoin.join();  // joined outside the lock
+    }
+}
+
+JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onSurfaceCreated(JNIEnv* env, jobject /*thiz*/,
                                                        jobject surface) {
     LOGI("JNI onSurfaceCreated");
-    // Acquires one reference to the underlying ANativeWindow.
     ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
     if (window == nullptr) {
         LOGE("ANativeWindow_fromSurface returned null");
         return;
     }
-    std::lock_guard<std::mutex> lock(g_mutex);
-    RenderThread* renderThread = ensureRenderThreadLocked();
-    renderThread->setWindow(window);  // ownership transferred
+    bridge::setWindow(window);  // ownership transferred to the bridge core
 }
 
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onSurfaceChanged(JNIEnv* /*env*/, jobject /*thiz*/,
                                                        jint width, jint height) {
     LOGI("JNI onSurfaceChanged %dx%d", width, height);
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_renderThread) {
-        g_renderThread->setSize(width, height);
-    }
+    bridge::setSize(width, height);
 }
 
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onSurfaceDestroyed(JNIEnv* /*env*/, jobject /*thiz*/) {
     LOGI("JNI onSurfaceDestroyed");
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_renderThread) {
-        g_renderThread->clearWindow();  // blocks until the window is released
-    }
+    bridge::clearWindow();  // blocks until the game thread frees its EGLSurface
 }
 
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onResume(JNIEnv* /*env*/, jobject /*thiz*/) {
     LOGI("JNI onResume");
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_renderThread) {
-        g_renderThread->setPaused(false);
-    }
+    bridge::setPaused(false);
 }
 
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onPause(JNIEnv* /*env*/, jobject /*thiz*/) {
     LOGI("JNI onPause");
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_renderThread) {
-        g_renderThread->setPaused(true);
-    }
-}
-
-JNIEXPORT void JNICALL
-Java_com_boardbridge_egl_NativeBridge_onDestroy(JNIEnv* /*env*/, jobject /*thiz*/) {
-    LOGI("JNI onDestroy");
-    std::unique_ptr<RenderThread> toStop;
-    {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        toStop = std::move(g_renderThread);
-    }
-    // Join outside the lock so we never hold g_mutex while blocking.
-    if (toStop) {
-        toStop->requestStop();
-    }
+    bridge::setPaused(true);
 }
 
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onTouch(JNIEnv* /*env*/, jobject /*thiz*/, jint pointerId,
                                               jint action, jfloat x, jfloat y, jlong timeMs) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_renderThread) {
-        g_renderThread->input().pushTouch(pointerId, action, x, y, timeMs);
-    }
+    bridge::pushTouch(pointerId, action, x, y, timeMs);
 }
 
 JNIEXPORT void JNICALL
 Java_com_boardbridge_egl_NativeBridge_onKey(JNIEnv* /*env*/, jobject /*thiz*/, jint keyCode,
                                             jint action, jint unicodeChar, jlong timeMs) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_renderThread) {
-        g_renderThread->input().pushKey(keyCode, action, unicodeChar, timeMs);
-    }
+    bridge::pushKey(keyCode, action, unicodeChar, timeMs);
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_boardbridge_egl_NativeBridge_getRendererInfo(JNIEnv* env, jobject /*thiz*/) {
-    std::string info;
-    {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        if (g_renderThread) {
-            info = g_renderThread->rendererInfo();
-        }
-    }
-    return env->NewStringUTF(info.c_str());
+    char buffer[512];
+    buffer[0] = '\0';
+    bridge::getRendererInfo(buffer, sizeof(buffer));
+    return env->NewStringUTF(buffer);
 }
 
 }  // extern "C"

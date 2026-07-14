@@ -2,7 +2,7 @@ name: Build BoardBridge APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "feat/**" ]
   pull_request:
   workflow_dispatch:
 
@@ -29,6 +29,12 @@ jobs:
         run: |
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Clone LWJGL3 (GLFW ABI reference)
+        run: |
+          git clone --depth 1 https://github.com/LWJGL/lwjgl3.git /tmp/lwjgl3 || echo "clone failed (non-fatal)"
+          echo "LWJGL3 GLFW module:"; ls /tmp/lwjgl3/modules/lwjgl/glfw 2>/dev/null | head || true
+          echo "Vendored GLFW header the shim implements:"; head -3 app/src/main/cpp/glfw/GLFW/glfw3.h
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
