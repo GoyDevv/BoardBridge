@@ -44,6 +44,7 @@ Java_com_boardbridge_egl_NativeBridge_startClient(JNIEnv* /*env*/, jobject /*thi
     if (g_started) {
         return;
     }
+    bridge::beginSession();  // clear any closing/paused state from a previous session
     g_started = true;
     LOGI("JNI startClient: spawning game thread");
     g_gameThread = std::thread(&game_client_run);

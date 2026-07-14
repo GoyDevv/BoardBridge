@@ -96,6 +96,15 @@ void requestClose() {
     g_cv.notify_all();
 }
 
+void beginSession() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_closing = false;
+    g_destroyPending = false;
+    g_paused = false;
+    g_cv.notify_all();
+    LOGI("bridge: begin session");
+}
+
 static void pushLocked(const Event& e) {
     if (g_events.size() >= kMaxEvents) {
         g_events.pop_front();

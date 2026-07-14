@@ -44,6 +44,7 @@ void clearWindow();                     // blocks (bounded) until the consumer f
 void setSize(int width, int height);
 void setPaused(bool paused);
 void requestClose();
+void beginSession();  // reset closing/paused/destroy flags for a fresh game-thread session
 void pushTouch(int32_t pointerId, int32_t action, float x, float y, int64_t timeMs);
 void pushKey(int32_t keyCode, int32_t action, int32_t unicode, int64_t timeMs);
 void setRendererInfo(const char* info);
