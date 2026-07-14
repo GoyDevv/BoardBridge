@@ -29,6 +29,9 @@ jobs:
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
 
+      - name: Prepare JVM assets (JRE 21 + HelloJvm)
+        run: bash ci/prepare-jvm-assets.sh
+
       - name: Build debug APK
         run: |
           chmod +x ./gradlew
@@ -56,7 +59,7 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb logcat -c
             adb shell am start -n com.boardbridge.egl/.MainActivity
-            sleep 8
+            sleep 12
             adb exec-out screencap -p > artifacts/screenshot-solid.png
             adb shell input tap 1100 540
             sleep 1
@@ -71,10 +74,11 @@ jobs:
             adb shell input keyevent KEYCODE_BACK
             sleep 2
             adb logcat -d > artifacts/logcat-full.txt
-            adb logcat -d -s BoardBridge:V > artifacts/logcat-boardbridge.txt
-            echo "===== BoardBridge logcat ====="
+            adb logcat -d -s BoardBridge:V JVMOut:V > artifacts/logcat-boardbridge.txt
+            echo "===== BoardBridge + JVM logcat ====="
             cat artifacts/logcat-boardbridge.txt
             grep -q "First frame rendered" artifacts/logcat-boardbridge.txt || (echo "ERROR: no 'First frame rendered' log found" && exit 1)
+            grep -q "Hello from JVM" artifacts/logcat-boardbridge.txt && echo "JVM OK: hello observed" || echo "WARN: hello JVM not observed in window"
 
       - name: Upload render evidence
         if: always()

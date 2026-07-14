@@ -25,7 +25,8 @@ target_compile_options(glfw PRIVATE -Wall -Wextra)
 # client that drives the GLFW shim exactly as an LWJGL program would.
 add_library(boardbridge SHARED
         native_bridge.cpp
-        game_client.cpp)
+        game_client.cpp
+        jvm_launcher.cpp)
 target_include_directories(boardbridge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/glfw)
 target_link_libraries(boardbridge glfw ${log-lib} ${android-lib})
 target_compile_options(boardbridge PRIVATE -Wall -Wextra)

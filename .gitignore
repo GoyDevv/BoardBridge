@@ -23,3 +23,7 @@ Thumbs.db
 # Keystores / secrets
 *.jks
 *.keystore
+
+# CI-generated JVM assets (fetched OpenJDK 21 + compiled HelloJvm; never committed)
+/app/src/main/assets/jre21/
+/app/src/main/assets/jvmtest/

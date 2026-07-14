@@ -61,4 +61,11 @@ object NativeBridge {
 
     /** GL_VENDOR / GL_RENDERER / GL_VERSION once the game thread has a context. */
     external fun getRendererInfo(): String
+
+    /**
+     * Launch the bundled OpenJDK via JNI_CreateJavaVM and run HelloJvm.main
+     * (headless). Returns 0 on success. Blocks the calling thread while the JVM
+     * runs, so call it from a background thread.
+     */
+    external fun runJvmHello(jreDir: String, classpath: String, nativeLibDir: String): Int
 }

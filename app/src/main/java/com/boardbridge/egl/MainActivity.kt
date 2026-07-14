@@ -52,6 +52,10 @@ class MainActivity : ComponentActivity() {
         // the SurfaceView's surface is created, then renders through libglfw.
         NativeBridge.startClient()
 
+        // Phase 3a: run a headless "hello JVM" (bundled OpenJDK 21) on a
+        // background thread, alongside the GLFW render client.
+        JvmRuntime.launchHelloAsync(this)
+
         // Poll the native getRendererInfo() JNI entry point until the game
         // thread has a GL context, then log GL_VENDOR / GL_RENDERER / GL_VERSION.
         logRendererInfoWhenReady(attempt = 0)
