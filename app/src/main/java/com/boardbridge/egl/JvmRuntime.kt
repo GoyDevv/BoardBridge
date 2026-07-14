@@ -33,11 +33,14 @@ object JvmRuntime {
         val app = context.applicationContext
         Thread({
             try {
+                Log.i(TAG, "JvmRuntime: thread started, abis=${Build.SUPPORTED_ABIS.joinToString()}")
+                val t0 = System.currentTimeMillis()
                 val jre = ensureJre(app)
                 if (jre == null) {
                     Log.e(TAG, "JvmRuntime: no bundled JRE for ABIs ${Build.SUPPORTED_ABIS.joinToString()}")
                     return@Thread
                 }
+                Log.i(TAG, "JvmRuntime: JRE ready in ${System.currentTimeMillis() - t0}ms")
                 val jar = copyAsset(app, "jvmtest/hello.jar", File(app.filesDir, "hello.jar"))
                 val libDir = app.applicationInfo.nativeLibraryDir
                 Log.i(TAG, "JvmRuntime: launching hello JVM (jre=${jre.absolutePath})")
@@ -66,6 +69,7 @@ object JvmRuntime {
         if (marker.exists()) return jreDir
         if (jreDir.exists()) jreDir.deleteRecursively()
         jreDir.mkdirs()
+        Log.i(TAG, "JvmRuntime: extracting $asset (first run)...")
         val jreCanonical = jreDir.canonicalPath
         context.assets.open(asset).buffered().use { input ->
             ZipInputStream(input).use { zis ->
