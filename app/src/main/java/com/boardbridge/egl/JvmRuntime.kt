@@ -18,18 +18,28 @@ package com.boardbridge.egl
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipInputStream
 
 /**
  * Extracts the bundled OpenJDK 21 runtime (per ABI) from assets to the app's
  * files dir and launches a headless "hello JVM" via [NativeBridge.runJvmHello].
- * This proves JNI_CreateJavaVM works with a real desktop JVM on-device.
+ * A process may create only one JVM, so the launch is guarded to run once.
  */
 object JvmRuntime {
     private const val TAG = "BoardBridge"
+    private val launched = AtomicBoolean(false)
 
     fun launchHelloAsync(context: Context) {
+        // JNI_CreateJavaVM can be called at most once per process; guard re-entry
+        // (e.g. Activity recreation) so we never hit JNI_EEXIST.
+        if (!launched.compareAndSet(false, true)) {
+            Log.i(TAG, "JvmRuntime: JVM already launched for this process, skipping")
+            return
+        }
         val app = context.applicationContext
         Thread({
             try {
@@ -70,30 +80,36 @@ object JvmRuntime {
         if (jreDir.exists()) jreDir.deleteRecursively()
         jreDir.mkdirs()
         Log.i(TAG, "JvmRuntime: extracting $asset (first run)...")
-        val jreCanonical = jreDir.canonicalPath
-        context.assets.open(asset).buffered().use { input ->
-            ZipInputStream(input).use { zis ->
+        var count = 0
+        val buffer = ByteArray(64 * 1024)
+        context.assets.open(asset).use { raw ->
+            ZipInputStream(BufferedInputStream(raw, 64 * 1024)).use { zis ->
                 var entry = zis.nextEntry
                 while (entry != null) {
-                    val out = File(jreDir, entry.name)
-                    // Guard against Zip Slip.
-                    if (out.canonicalPath != jreCanonical &&
-                        !out.canonicalPath.startsWith(jreCanonical + File.separator)
-                    ) {
-                        throw SecurityException("Zip entry outside target: ${entry.name}")
-                    }
+                    val name = entry.name
+                    // Cheap Zip-Slip guard (our controlled archive has no ".." entries).
+                    if (name.contains("..")) throw SecurityException("bad zip entry: $name")
+                    val out = File(jreDir, name)
                     if (entry.isDirectory) {
                         out.mkdirs()
                     } else {
                         out.parentFile?.mkdirs()
-                        out.outputStream().use { zis.copyTo(it) }
+                        BufferedOutputStream(out.outputStream(), 64 * 1024).use { os ->
+                            var n = zis.read(buffer)
+                            while (n >= 0) {
+                                os.write(buffer, 0, n)
+                                n = zis.read(buffer)
+                            }
+                        }
+                        count++
                     }
                     entry = zis.nextEntry
                 }
             }
         }
+        File(jreDir, "bin").listFiles()?.forEach { it.setExecutable(true, false) }
         marker.writeText("ok")
-        Log.i(TAG, "JvmRuntime: extracted JRE to ${jreDir.absolutePath}")
+        Log.i(TAG, "JvmRuntime: extracted $count files to ${jreDir.absolutePath}")
         return jreDir
     }
 
