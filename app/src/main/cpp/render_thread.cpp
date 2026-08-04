@@ -107,7 +107,14 @@ void RenderThread::clearWindow() {
     clearRequested_ = true;
     clearAck_ = false;
     cond_.notify_all();
-    cond_.wait(lock, [this] { return clearAck_ || !running_; });
+    // Surface-loss timeout (spec §5.3): a game blocked in chunk generation on
+    // the inverted (game) thread may never reach the loop, so waiting forever
+    // would ANR the UI thread. Cap the wait at 2 s and proceed regardless;
+    // EGL teardown happens on the render thread when it next wakes.
+    if (!cond_.wait_for(lock, std::chrono::milliseconds(2000),
+                        [this] { return clearAck_ || !running_; })) {
+        LOGW("clearWindow timed out after 2 s; proceeding (surface-loss path)");
+    }
 }
 
 void RenderThread::setSize(int width, int height) {
@@ -121,6 +128,32 @@ void RenderThread::setPaused(bool paused) {
     std::lock_guard<std::mutex> lock(mutex_);
     paused_ = paused;
     cond_.notify_all();
+}
+
+bool RenderThread::attachCurrentThread() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!egl_.hasContext()) {
+        return false;
+    }
+    // If no window surface is bound yet, make the context current against a
+    // pbuffer so the game thread has a valid current context and can keep
+    // running (surface-loss path, spec §5.3).
+    return egl_.makeCurrent();
+}
+
+void RenderThread::swap() {
+    egl_.swapBuffers();
+}
+
+void RenderThread::setInvertedMode(bool inverted) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    inverted_ = inverted;
+    cond_.notify_all();
+}
+
+std::pair<int, int> RenderThread::surfaceSize() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return {egl_.surfaceWidth(), egl_.surfaceHeight()};
 }
 
 std::string RenderThread::rendererInfo() {
@@ -207,6 +240,13 @@ void RenderThread::threadMain() {
         }
         if (!running_) {
             break;
+        }
+        // In inverted mode the game thread drives rendering through
+        // attachCurrentThread()/swap(); the internal thread only services
+        // surface lifecycle changes.
+        if (inverted_) {
+            cond_.wait(lock);
+            continue;
         }
         const bool canRender = !paused_ && egl_.hasSurface();
         if (!canRender) {

@@ -55,6 +55,23 @@ object NativeBridge {
     external fun onDestroy()
 
     /**
+     * Frame-loop inversion (Anvil spec §5.2): make the EGL context current on
+     * the calling (JVM/game) thread so Minecraft can drive the loop via
+     * glfwMakeContextCurrent / glfwSwapBuffers through libanvil_glfw.so.
+     */
+    external fun attachCurrentThread(): Boolean
+
+    /** Present the back buffer from the calling thread (glfwSwapBuffers). */
+    external fun swap()
+
+    /**
+     * Switch the render thread to inverted mode: the internal loop idles and
+     * the game thread drives rendering. Keep the self-driven mode behind this
+     * flag for the triangle test / CI verification (spec §5.2).
+     */
+    external fun setInvertedMode(inverted: Boolean)
+
+    /**
      * Forward one touch pointer sample.
      * @param action the [android.view.MotionEvent] masked action.
      */

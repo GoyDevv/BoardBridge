@@ -67,6 +67,16 @@ public:
     void setSize(int width, int height);
     void setPaused(bool paused);
 
+    // --- Frame-loop inversion (Anvil spec §5.2) ---
+    // Minecraft owns the loop and calls these from a JVM thread via the
+    // libanvil_glfw.so shim. attachCurrentThread() makes the EGL context
+    // current on the *calling* thread; swap() presents. The internal loop
+    // idles while inverted_.
+    bool attachCurrentThread();
+    void swap();
+    void setInvertedMode(bool inverted);
+    std::pair<int, int> surfaceSize();
+
     InputQueue& input() { return input_; }
     std::string rendererInfo();
 
@@ -92,6 +102,7 @@ private:
     bool clearAck_ = false;
     bool running_ = false;
     bool paused_ = false;
+    bool inverted_ = false;  // game thread drives the loop
     int width_ = 0;
     int height_ = 0;
 

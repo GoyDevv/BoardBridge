@@ -128,6 +128,32 @@ Java_com_boardbridge_egl_NativeBridge_onKey(JNIEnv* /*env*/, jobject /*thiz*/, j
     }
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_boardbridge_egl_NativeBridge_attachCurrentThread(JNIEnv* /*env*/, jobject /*thiz*/) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_renderThread) {
+        return g_renderThread->attachCurrentThread() ? JNI_TRUE : JNI_FALSE;
+    }
+    return JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_boardbridge_egl_NativeBridge_swap(JNIEnv* /*env*/, jobject /*thiz*/) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_renderThread) {
+        g_renderThread->swap();
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_boardbridge_egl_NativeBridge_setInvertedMode(JNIEnv* /*env*/, jobject /*thiz*/,
+                                                      jboolean inverted) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_renderThread) {
+        g_renderThread->setInvertedMode(inverted == JNI_TRUE);
+    }
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_boardbridge_egl_NativeBridge_getRendererInfo(JNIEnv* env, jobject /*thiz*/) {
     std::string info;
