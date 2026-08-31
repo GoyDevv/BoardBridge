@@ -1,0 +1,1 @@
+Temporary marker. The canonical website source remains index.html.
