@@ -14,6 +14,11 @@
 //! device: the per-frame diagnostics are `debug`-level precisely so that they
 //! cost a single relaxed atomic load per frame when disabled.
 
+// `c_char` is only used by the logcat declaration below. It is spelled as
+// `c_char` and not `i8` on purpose: on aarch64 Android `c_char` is `u8`, so a
+// hand-written `*const i8` signature does not match `CString::as_ptr()`.
+#[cfg(target_os = "android")]
+use core::ffi::c_char;
 use core::fmt;
 use core::sync::atomic::{AtomicU8, Ordering};
 
@@ -92,7 +97,7 @@ pub fn emit(level: Level, args: fmt::Arguments<'_>) {
 #[cfg(target_os = "android")]
 #[link(name = "log")]
 extern "C" {
-    fn __android_log_write(prio: i32, tag: *const i8, text: *const i8) -> i32;
+    fn __android_log_write(prio: i32, tag: *const c_char, text: *const c_char) -> i32;
 }
 
 #[cfg(target_os = "android")]
@@ -109,7 +114,11 @@ fn write_line(level: Level, message: &str) {
     // The tag is a compile-time constant without interior NULs.
     static TAG_BYTES: &[u8] = b"BoardBridge\0";
     unsafe {
-        __android_log_write(level as i32, TAG_BYTES.as_ptr() as *const i8, text.as_ptr());
+        __android_log_write(
+            level as i32,
+            TAG_BYTES.as_ptr() as *const c_char,
+            text.as_ptr(),
+        );
     }
 }
 

@@ -954,7 +954,7 @@ fn bridge_thread_main(shared: Arc<Shared>) {
             pace(&shared, &mut last_frame, target_fps);
         } else {
             // ---- 3. Nothing to draw: sleep until something changes. ----
-            let mut state = shared.lock();
+            let state = shared.lock();
             if state.commands.is_empty() && !state.stopping {
                 let _ = shared.signal.wait(state);
             }

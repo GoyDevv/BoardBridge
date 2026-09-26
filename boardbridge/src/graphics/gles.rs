@@ -46,7 +46,7 @@ use crate::bb_info;
 use crate::bb_warn;
 use crate::egl::ffi as eglffi;
 use crate::egl::surface::{PbufferSurface, WindowBinding};
-use crate::egl::{last_error, Context, CurrentTarget, Display, ES3_FALLBACK_CHAIN};
+use crate::egl::{last_error, Config, Context, CurrentTarget, Display, ES3_FALLBACK_CHAIN};
 use crate::error::{Error, Result};
 use crate::graphics::ffi as gl;
 use crate::graphics::{
