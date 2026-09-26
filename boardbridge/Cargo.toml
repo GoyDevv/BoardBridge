@@ -1,0 +1,43 @@
+# Copyright 2026 The BoardBridge Authors
+# Licensed under the Apache License, Version 2.0.
+#
+# BoardBridge native core: the Android platform/runtime bridge that the
+# Kotlin shell (app/) talks to over JNI and that an LWJGL-facing shim will
+# talk to over a plain C ABI.
+#
+# Build (Android, via Gradle):  ./gradlew :app:assembleDebug
+# Build (manual, needs an NDK): cargo build --target aarch64-linux-android
+# Host checks / unit tests:     cargo test && cargo clippy
+
+[package]
+name = "boardbridge"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.75"
+license = "Apache-2.0"
+repository = "https://github.com/GoyDevv/BoardBridge"
+description = "Android native bridge/runtime for Minecraft Java Edition launchers (Surface, EGL, input, SDL3/GLFW backend interfaces)"
+keywords = ["android", "egl", "minecraft", "sdl3", "lwjgl"]
+categories = ["api-bindings", "graphics"]
+
+[lib]
+# cdylib -> libboardbridge.so, packaged into the APK as a JNI library.
+# rlib   -> lets host (non-Android) unit tests link the pure-logic modules.
+crate-type = ["cdylib", "rlib"]
+
+# The JNI boundary is only needed on Android; host builds (cargo test on the
+# CI runner) therefore never pull the dependency in.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "=0.21.1", default-features = false }
+
+[profile.release]
+# 16 KB page alignment is enforced through RUSTFLAGS in the Gradle build and
+# in CI (see android/gradle note in docs/ANDROID.md).
+lto = true
+codegen-units = 1
+# A panic must never unwind across the JNI boundary.
+panic = "abort"
+strip = "debuginfo"
+
+[profile.dev]
+panic = "unwind"

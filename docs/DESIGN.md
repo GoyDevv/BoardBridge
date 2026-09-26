@@ -1,10 +1,16 @@
-# BoardBridge — Design & Lineage
+# Design & lineage
 
-BoardBridge is a small, self-contained Android app that binds an Android
-`Surface` to an OpenGL ES 3.2 context **in native code** and drives it from a
-dedicated render thread, with full surface-lifecycle handling and input
-dispatch. It modernizes the Surface-to-GL approach used by
-[Boardwalk](https://github.com/zhuowei/Boardwalk) (by zhuowei, Apache-2.0).
+BoardBridge binds an Android `Surface` to an OpenGL ES (or, later, Vulkan)
+context **in native code** and hands the game a window, a context it can make
+current on its own thread, and input in SDL/GLFW shape — with the surface
+lifecycle handled so that no thread can ever touch a window Android has already
+reclaimed.
+
+It modernizes the Surface-to-GL approach of
+[Boardwalk](https://github.com/zhuowei/Boardwalk) (by zhuowei, Apache-2.0). This
+document records that lineage honestly and states the design rules the code
+follows; the concrete architecture is in [ARCHITECTURE.md](ARCHITECTURE.md),
+threading and lifecycle in [THREADING.md](THREADING.md).
 
 ---
 
@@ -15,7 +21,7 @@ hand-write an EGL/Surface bridge:
 
 - **`BoardwalkGLSurfaceView.java`** is a thin subclass of the framework
   `android.opengl.GLSurfaceView`. The framework class is what actually performs
-  the `Surface -> EGLSurface` binding (internally via its `EglHelper`, using
+  the `Surface` → `EGLSurface` binding (internally via its `EglHelper`, using
   `eglCreateWindowSurface` on the `SurfaceHolder`) and manages the surface
   lifecycle through `SurfaceHolder.Callback` on an internal `GLThread`. The
   Boardwalk subclass only overrides `surfaceDestroyed` to print a line.
@@ -29,7 +35,9 @@ hand-write an EGL/Surface bridge:
 
 So **“the Boardwalk EGL/Surface bridge” is really the GLSurfaceView pattern**:
 surface lifecycle via `SurfaceHolder`, EGL managed by the framework. That is the
-conceptual seed BoardBridge takes and rebuilds natively.
+conceptual seed BoardBridge takes and rebuilds natively — the framework's EGL
+ownership, its `GLThread`, its virtual controls and its JVM tweaks are all
+replaced with explicit, auditable code.
 
 ---
 
@@ -69,124 +77,73 @@ conceptual seed BoardBridge takes and rebuilds natively.
   renderer.
 
 **What BoardBridge borrows conceptually:** the “hand the raw Surface to native,
-own EGL there, run a dedicated render thread, and marshal a thread-safe surface
-lifecycle plus an input queue” shape. BoardBridge implements only the core
-bridge (system EGL + GLES 3.2) — not translators, virtual controls, or a game
-runtime — and does so as original Apache-2.0 code.
+own EGL there, run a dedicated bridge thread, and marshal a thread-safe surface
+lifecycle plus an input queue” shape. BoardBridge implements the bridge itself —
+window ownership, EGL, the loop model, input translation — and deliberately does
+*not* implement translators, virtual controls, JVM management or a game runtime.
 
 ---
 
-## 3. BoardBridge architecture
+## 3. The design rules
 
-```
-              Java / Kotlin                     |            Native C++ (libboardbridge.so)
-------------------------------------------------+-----------------------------------------------------
- MainActivity (ComponentActivity)               |
-   └─ BridgeSurfaceView : SurfaceView,          |
-        SurfaceHolder.Callback                  |
-        • surfaceCreated  ─┐                     |
-        • surfaceChanged   │  JNI  NativeBridge  |   native_bridge.cpp (JNI entry points)
-        • surfaceDestroyed ├────────────────────▶   • ANativeWindow_fromSurface(surface)
-        • onTouchEvent     │                     |   • forwards to a single global RenderThread
-        • onKeyDown/Up    ─┘                     |
-                                                 |   RenderThread (dedicated std::thread)
-                                                 |     • mutex + condition_variable
-                                                 |     • thread-safe window handoff
-                                                 |     • SYNCHRONOUS clearWindow()
-                                                 |     • drains InputQueue each frame
-                                                 |          │
-                                                 |          ▼
-                                                 |   EglCore   • eglInitialize / chooseConfig(ES3)
-                                                 |             • eglCreateContext (3.2→3.1→3.0)
-                                                 |             • eglCreateWindowSurface(window)
-                                                 |             • makeCurrent / swapBuffers
-                                                 |   InputQueue • bounded, mutex-protected deque
-```
-
-### Threading & the surface lifecycle race
-The classic Android pitfall is using an `ANativeWindow` after `surfaceDestroyed`
-returns. BoardBridge avoids it by making `clearWindow()` **block** the UI thread
-inside `surfaceDestroyed` until the render thread has destroyed the `EGLSurface`
-and called `ANativeWindow_release`. Window ownership is a single transferred
-reference: `ANativeWindow_fromSurface` gives one ref to JNI, JNI transfers it to
-`RenderThread`, and the render thread releases it when the window is replaced,
-cleared, or the thread stops.
-
-### Input dispatch
-`BridgeSurfaceView` forwards touch (per-pointer for MOVE batches) and key events
-through JNI into a bounded `InputQueue`. The render thread drains the queue once
-per frame. A primary **DOWN** (touch `ACTION_DOWN` or key `ACTION_DOWN`) toggles
-the render mode (SOLID ⇄ TRIANGLE) and is logged to logcat, so the input path
-visibly drives rendering and is observable end-to-end. The BACK key is
-deliberately passed through to the system so the user is never trapped.
-
-### The render test
-The default render mode is a **minimal solid-color test**: every frame clears
-the surface to a fixed solid color (~ RGBA `0, 158, 166`) and calls
-`eglSwapBuffers`. This is trivial to verify:
-
-- **logcat**: once per second the render thread logs `frames`, `fps`, and a
-  `glReadPixels` **center-pixel readback** — in SOLID mode that pixel equals the
-  clear color, which is direct proof that real pixels were rendered (used for
-  on-device verification, where `screencap` is blocked by SurfaceFlinger).
-- **screenshot**: on an emulator the fullscreen solid color is captured with
-  `adb exec-out screencap`.
-
-A DOWN event switches to **TRIANGLE mode**, which compiles a GLES 3.00 shader
-program and draws a spinning colored triangle (proving the shader pipeline). If
-shader compilation fails on some driver it falls back to the clear alone. The
-`MainActivity` also calls `NativeBridge.getRendererInfo()` (retrying until the
-context exists) and logs `GL_VENDOR / GL_RENDERER / GL_VERSION`.
+1. **Android reports, Rust decides.** Kotlin's callbacks describe what Android
+   thinks happened; the Rust lifecycle machine and the GLES backend describe what
+   actually happened. Both feed the same state machine, and every JNI call
+   returns a code instead of a hopeful boolean.
+2. **Ownership is a single Rust value.** One `OwnedNativeWindow` per binding, no
+   clones; `EGLSurface` is always destroyed before the window reference is
+   released (the field order in `WindowBinding` is load-bearing).
+3. **No sleep-based synchronisation, anywhere.** Waits are on command ids with
+   deadlines; expiry defers work instead of guessing. See
+   [THREADING.md](THREADING.md).
+4. **Translate once, at the boundary.** Input enters the queue as real SDL
+   values (`SDL_Scancode`, `SDL_KMOD_*`, `SDL_GAMEPAD_AXIS_*`), generated from
+   SDL3's own headers, not as renamed Android keycodes.
+5. **Unimplemented is a first-class state.** Vulkan, SDL3 and GLFW report
+   `interface-only` with the remaining work named, and fail with
+   `ERR_BACKEND_UNAVAILABLE` rather than silently succeeding
+   ([STATUS.md](STATUS.md)).
+6. **Observable from a phone.** `getStatus()`/`runSelfTest()`/logcat must be
+   enough to diagnose a device problem without a debugger.
 
 ---
 
-## 4. Modernization: Boardwalk (2015-2020) → BoardBridge (2026)
+## 4. Modernization table
 
-| Concern            | Boardwalk                                   | BoardBridge                                                   |
-|--------------------|---------------------------------------------|--------------------------------------------------------------|
-| Surface→GL binding | Framework `GLSurfaceView` (Java `EglHelper`)| Native `ANativeWindow_fromSurface` + `eglCreateWindowSurface`|
-| GL level           | ES 1.x/2.x era defaults                     | OpenGL ES 3.2 context (3.1/3.0 fallback), GLSL ES 3.00       |
-| Native build       | `ndk-build`, `Android.mk`, `gnustl_shared`, C++11 | CMake `externalNativeBuild`, libc++, C++17               |
-| ABIs               | armeabi-v7a first, x86, arm64-v8a           | arm64-v8a primary (+ armeabi-v7a, x86_64), NDK r27c 16 KB pages |
-| Platform           | `APP_PLATFORM android-14`                   | `compileSdk`/`targetSdk` 35 (Android 15), `minSdk` 26        |
-| Language / AndroidX| Java, pre-AndroidX                          | Kotlin, AndroidX (`core-ktx`, `activity-ktx`)                |
-| Surface lifecycle  | Delegated to `GLSurfaceView`                | Explicit thread-safe handoff (mutex/condvar, synchronous destroy) |
-| Render thread      | LWJGL/GLSurfaceView internal `GLThread`     | Dedicated `std::thread` state machine we own                 |
-| Input              | LWJGL-Android port (external)               | Native bounded `InputQueue`, per-pointer touch + keys        |
+| Concern | Boardwalk (2015–2020) | BoardBridge (2026) |
+|---|---|---|
+| Surface → GL binding | framework `GLSurfaceView` (Java `EglHelper`) | native `ANativeWindow_fromSurface` + `eglCreateWindowSurface` in Rust |
+| GL level | ES 1.x/2.x era defaults | ES 3.2 context with 3.1/3.0/ES-3 fallback, GLSL ES 3.00 |
+| Native language | C++11 (earlier demo: C++17) | Rust 2021 (cdylib), no C++ left in the app |
+| Native build | `ndk-build`, `Android.mk`, `gnustl_shared` | `cargo ndk` driven by Gradle; NDK r27c, 16 KB-page aligned |
+| ABIs | armeabi-v7a first, x86, arm64-v8a | arm64-v8a primary (+ armeabi-v7a, x86_64) |
+| Platform | `APP_PLATFORM android-14` | `compileSdk`/`targetSdk` 35 (Android 15), `minSdk` 26 |
+| Language / AndroidX | Java, pre-AndroidX | Kotlin, AndroidX (`core-ktx`, `activity-ktx`) |
+| Surface lifecycle | delegated to `GLSurfaceView` | explicit state machine (`NO_SURFACE` … `STOPPED`) + bounded fences |
+| Render thread | `GLSurfaceView`'s internal `GLThread` | the bridge's own thread, with a FIFO command queue |
+| Frame loop | framework-driven | `Internal` (bridge draws) or `Inverted` (the game draws; `attachGameThread`/`swapBuffers`) |
+| Input | LWJGL-Android port (external) | translation to real SDL values, bounded queue, IME text, gamepads |
+| Graphics backends | system EGL + GLES only | GLES implemented; Vulkan a documented interface |
+| Verification | manual on a phone | `cargo test` + APK build + emulator assertions in CI, plus on-device logcat greps |
 
 ---
 
-## 5. Building
+## 5. Building and verifying
 
-The native pipeline requires an Android SDK/NDK that can run on the build host.
-See the repository `README.md` for details; in short, the canonical build is
-`./gradlew :app:assembleDebug`, executed on CI (GitHub Actions, ubuntu runner)
-because the primary development device here is an aarch64 Android phone whose
-downloaded SDK build-tools are x86-64 and cannot execute locally.
+See [ANDROID.md](ANDROID.md) for the toolchain and the exact commands, and
+[STATUS.md](STATUS.md) for what each CI job proves. In short: the APK is built on
+CI (`./gradlew :app:assembleDebug`, which cross-compiles the Rust core for every
+ABI), the `.so` is checked for 16 KB page alignment and the expected exported
+symbols, and an emulator run asserts on logcat that the surface was bound, frames
+were drawn, the centre pixel is the solid clear colour, and that `KEYCODE_A`
+arrived as `SDL_SCANCODE_A`.
 
-## 6. Verifying that it renders
+Two notes carried over from the C++ era, still true:
 
-The render test is verified on a **CI x86_64 emulator**, with the arm64 target
-proven by cross-compilation:
-
-- **CI emulator (x86_64, KVM-accelerated).** `.github/workflows/render-test.yml`
-  builds the APK, boots a headless emulator, installs and launches the app, then
-  uploads `adb logcat` plus an `adb exec-out screencap` PNG. The BoardBridge
-  logcat shows `Surface bound. GL_RENDERER=... (SwiftShader) ... GL_VERSION=
-  OpenGL ES 3.0`, `First frame rendered`, `Renderer info: ...` (the
-  `getRendererInfo()` call), and a per-second line such as
-  `frames=40 fps=24.7 mode=SOLID center_pixel_RGBA=(0,158,166,255)`. That
-  `glReadPixels` center-pixel readback `(0,158,166)` exactly matches the solid
-  clear color — authoritative pixel proof. The screenshot PNG shows the same
-  uniform solid fill; its captured value differs slightly because `screencap`
-  passes through the display color-management path while `glReadPixels` reads the
-  raw framebuffer.
-
-- **arm64 (real Mali-G52 / Helio G85).** The `arm64-v8a` `libboardbridge.so`
-  cross-compiles and links (verified: `ELF ... arm64 ... built by NDK r27c`,
-  exporting all nine `Java_com_boardbridge_egl_NativeBridge_*` symbols and
-  linking `libEGL`/`libGLESv3`/`libandroid`). Automated `pm install` / `am start`
-  from the development proot are denied by Android (that shell context lacks the
-  `INSTALL_PACKAGES` / shell-uid privileges — only read-only `logcat` and
-  `pm list` are permitted), so rendering is verified on the emulator above and
-  the APK can be sideloaded manually to run on the Mali GPU.
+- **`glReadPixels` is the authoritative pixel proof**, not `screencap`: the
+  readback sees the raw framebuffer, while a screenshot passes through the
+  display's colour-management path and can differ by a few LSBs. This is why the
+  CI assertion on the centre pixel allows 1 LSB of rounding.
+- **The primary development device is an aarch64 Android phone**, where the SDK's
+  x86-64 build tools cannot execute; cross-compilation on CI is what proves the
+  arm64 artifact, and a manual sideload is what proves the GPU path.

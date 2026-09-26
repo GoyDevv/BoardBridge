@@ -1,0 +1,36 @@
+// Copyright 2026 The BoardBridge Authors
+// Licensed under the Apache License, Version 2.0.
+
+//! Input plumbing.
+//!
+//! ```text
+//! Android UI thread                bridge thread / game thread
+//! ─────────────────                ───────────────────────────
+//! MotionEvent/KeyEvent
+//!   → platform decoding (Kotlin: phases, device class)
+//!   → JNI batch call
+//!   → Android → SDL translation        ← this module (Rust)
+//!   → EventQueue ─────────────────────→ drain per frame (diagnostics) or
+//!                                       poll per frame (game via SDL/GLFW)
+//! ```
+//!
+//! * [`event`] — the SDL-shaped event model.
+//! * [`keymap`] — Android → SDL translation (scancodes, keycodes, modifiers,
+//!   mouse buttons, gamepad axes).
+//! * [`queue`] — the bounded, drop-oldest queue that decouples the Android UI
+//!   thread from the consumer.
+//! * [`sdl_tables`] — generated SDL3/Android constant tables; never hand-edited
+//!   (`tools/generate_sdl_tables.py`).
+//!
+//! The queue is the only synchronization point: producers never block (pushing
+//! takes a mutex for the duration of a `VecDeque::push_back`), and consumers
+//! drain into their own buffer so a frame does not allocate.
+
+pub mod event;
+pub mod keymap;
+pub mod queue;
+pub mod sdl_tables;
+
+pub use event::{DeviceKind, InputEvent, LifecycleNotice, MouseButton, TouchPhase};
+pub use keymap::ModifierState;
+pub use queue::{EventQueue, QueueStats, DEFAULT_CAPACITY};

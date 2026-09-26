@@ -5,10 +5,22 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- BoardBridge renders with OpenGL ES 3.2 (Mali-G52 class GPUs). -->
+    <!--
+      OpenGL ES 3.0 is the floor the bridge guarantees; it asks for ES 3.2, 3.1
+      and 3.0 in turn (see docs/GRAPHICS.md). Claiming 3.2 as *required* here
+      would exclude devices the bridge actually supports.
+    -->
     <uses-feature
-        android:glEsVersion="0x00030002"
+        android:glEsVersion="0x00030000"
         android:required="true" />
+
+    <!-- Touch and gamepads are both optional: hardware keys and a mouse work too. -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.gamepad"
+        android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -18,6 +30,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.BoardBridge">
 
+        <!--
+          configChanges keeps the activity alive across rotation and keyboard
+          changes; the SurfaceView's surface is still destroyed and recreated by
+          the platform, which is exactly the lifecycle path the bridge is built
+          around (docs/THREADING.md).
+        -->
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|density|smallestScreenSize|uiMode|navigation|keyboard"

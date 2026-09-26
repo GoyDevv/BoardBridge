@@ -3,10 +3,18 @@
 build/
 /app/build/
 
-# Native build intermediates
-.cxx/
-/app/.cxx/
-.externalNativeBuild/
+# Rust
+boardbridge/target/
+
+# cargo-ndk output consumed as jniLibs (also covered by /app/build/)
+/app/build/rustJniLibs/
+
+# Generated-table download cache (tools/generate_sdl_tables.py)
+.sdl_tables_cache/
+
+# Local tooling scratch: rustup init, vendored crate sources
+.tools/
+.freebuff/
 
 # Local config (machine-specific SDK path)
 local.properties

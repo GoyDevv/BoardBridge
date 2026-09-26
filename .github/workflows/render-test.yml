@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  NDK_VERSION: "27.2.12479018"
+
 jobs:
   render-test:
     runs-on: ubuntu-latest
@@ -24,12 +27,31 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install SDK platform, build-tools, NDK and CMake
+      - name: Install SDK platform, build-tools and NDK
         run: |
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;$NDK_VERSION"
 
-      - name: Build debug APK
+      - name: Set up Rust with the Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: boardbridge
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Point cargo-ndk at the NDK
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$(dirname "$(dirname "$(command -v sdkmanager)")")}"
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          ls "$SDK_ROOT/ndk"
+
+      - name: Build debug APK (Rust core + Kotlin shell)
         run: |
           chmod +x ./gradlew
           ./gradlew :app:assembleDebug --stacktrace --no-daemon
@@ -54,27 +76,82 @@ jobs:
             mkdir -p artifacts
             adb wait-for-device
             adb install -r app/build/outputs/apk/debug/app-debug.apk
+            # Suppress the immersive-mode confirmation overlay, which otherwise
+            # swallows the first tap.
+            adb shell settings put secure immersive_mode_confirmations confirmed
             adb logcat -c
-            adb shell am start -n com.boardbridge.egl/.MainActivity
+            # applicationId + activity from app/build.gradle.kts / AndroidManifest.xml
+            adb shell am start -n com.boardbridge.bridge/.MainActivity
             sleep 8
             adb exec-out screencap -p > artifacts/screenshot-solid.png
-            adb shell input tap 1100 540
+
+            # Touch + key input must travel Android -> SDL translation -> queue.
+            # (The app is landscape, so the safe centre is around 1200,540.)
+            adb shell input tap 1200 540
             sleep 1
-            adb shell input keyevent 30
+            adb shell input keyevent KEYCODE_A
             sleep 1
             adb exec-out screencap -p > artifacts/screenshot-after-input.png
+
+            # HOME then relaunch: the activity is recreated and the surface is
+            # handed over again, which exercises the destroy/create path.
             adb shell input keyevent KEYCODE_HOME
             sleep 3
-            adb shell am start -n com.boardbridge.egl/.MainActivity
+            adb shell am start -n com.boardbridge.bridge/.MainActivity
             sleep 5
             adb exec-out screencap -p > artifacts/screenshot-after-resume.png
+
+            # Finish the activity. Two BACK presses: the first may only reveal
+            # the system bars (the app is immersive), the second leaves.
+            adb shell input keyevent KEYCODE_BACK
+            sleep 1
             adb shell input keyevent KEYCODE_BACK
             sleep 2
+
             adb logcat -d > artifacts/logcat-full.txt
             adb logcat -d -s BoardBridge:V > artifacts/logcat-boardbridge.txt
             echo "===== BoardBridge logcat ====="
             cat artifacts/logcat-boardbridge.txt
-            grep -q "First frame rendered" artifacts/logcat-boardbridge.txt || (echo "ERROR: no 'First frame rendered' log found" && exit 1)
+
+            fail() { echo "ERROR: $1"; exit 1; }
+
+            # 1. The EGL context exists and the GL strings crossed JNI.
+            grep -q "GL_VERSION=" artifacts/logcat-boardbridge.txt \
+              || fail "no GL_VENDOR/GL_RENDERER/GL_VERSION line: the context never came up"
+
+            # 2. The surface was bound through the lifecycle machine and EGL.
+            grep -q "First frame rendered" artifacts/logcat-boardbridge.txt \
+              || fail "no 'First frame rendered' line: the surface/EGL path did not run"
+
+            # 3. The internal loop kept drawing and read the centre pixel back
+            #    (the clear colour is (0, 158, 166); allow 1 LSB of rounding).
+            grep -Eq "frames=[0-9]+ fps=[0-9.]+ mode=SOLID" artifacts/logcat-boardbridge.txt \
+              || fail "no frame-statistics line: the render loop did not run"
+            grep -Eq "center_pixel_RGBA=\([0-9]+,15[0-9],16[0-9],25[0-5]\)" artifacts/logcat-boardbridge.txt \
+              || fail "centre pixel is not the diagnostic solid colour"
+
+            # 4. Input really was translated to SDL: KEYCODE_A must reach the
+            #    queue as scancode A (29 -> SDL_SCANCODE_A), not as a raw Android
+            #    keycode passed through.
+            grep -q "key DOWN code=29 scancode=A" artifacts/logcat-boardbridge.txt \
+              || fail "KEYCODE_A did not arrive as SDL scancode A"
+            grep -q "touch DOWN at" artifacts/logcat-boardbridge.txt \
+              || fail "no touch event reached the diagnostic renderer"
+
+            # 5. The surface was torn down and handed over again: HOME then
+            #    relaunch must produce a second, independent binding.
+            BINDINGS=$(grep -c "surface created:" artifacts/logcat-boardbridge.txt || true)
+            echo "surface bindings: $BINDINGS"
+            [ "$BINDINGS" -ge 2 ] \
+              || fail "expected at least 2 surface bindings after HOME + relaunch, saw $BINDINGS"
+
+            # 6. The runtime was torn down cleanly.
+            grep -q "runtime created" artifacts/logcat-boardbridge.txt \
+              || fail "no 'runtime created' line: createRuntime never ran"
+            grep -q "runtime stopped" artifacts/logcat-boardbridge.txt \
+              || fail "the runtime was never stopped: onDestroy/back handling is wrong"
+
+            echo "All render-test assertions passed."
 
       - name: Upload render evidence
         if: always()

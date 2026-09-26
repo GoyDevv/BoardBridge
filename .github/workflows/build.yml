@@ -1,4 +1,4 @@
-name: Build BoardBridge APK
+name: Build BoardBridge
 
 on:
   push:
@@ -9,8 +9,49 @@ on:
 permissions:
   contents: read
 
+env:
+  NDK_VERSION: "27.2.12479018"
+
 jobs:
-  build:
+  # The Rust core: everything that can be checked on a host runner. The Android
+  # target is cross-compiled in the `apk` job, because the JNI module is
+  # cfg(target_os = "android") and is therefore not even compiled by cargo test.
+  rust:
+    name: Rust core (fmt, clippy, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: boardbridge
+
+      # Ordered by information value: the compile + unit tests first, so a
+      # formatting or lint complaint never hides whether the crate builds.
+      - name: Unit tests (lifecycle, input, config, errors)
+        working-directory: boardbridge
+        run: cargo test --verbose
+
+      - name: Formatting
+        working-directory: boardbridge
+        run: cargo fmt --all --check
+
+      - name: Lints (warnings are failures)
+        working-directory: boardbridge
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Generated SDL3/AOSP tables are up to date
+        run: python3 tools/generate_sdl_tables.py --check
+
+  apk:
+    name: Android APK (Rust .so + Kotlin shell)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,16 +66,51 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install SDK platform, build-tools, NDK and CMake
+      - name: Install SDK platform, build-tools and NDK
         run: |
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;$NDK_VERSION"
+
+      - name: Set up Rust with the Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: boardbridge
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build debug APK
+      - name: Point cargo-ndk at the NDK
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$(dirname "$(dirname "$(command -v sdkmanager)")")}"
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          ls "$SDK_ROOT/ndk"
+
+      - name: Build debug APK (builds the Rust core for every ABI)
         run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Verify the Rust library is packaged and 16 KB aligned
+        run: |
+          set -e
+          SO=app/build/rustJniLibs/arm64-v8a/libboardbridge.so
+          test -f "$SO" || { echo "ERROR: $SO was not produced by cargo ndk"; exit 1; }
+          echo "== LOAD segment alignment =="
+          readelf -lW "$SO" | awk '$1 == "LOAD" { print $NF }' | sort -u
+          for alignment in $(readelf -lW "$SO" | awk '$1 == "LOAD" { print $NF }' | sort -u); do
+            if [ "$((alignment))" -lt 16384 ]; then
+              echo "ERROR: LOAD segment alignment $alignment is below the 16 KB requirement"
+              exit 1
+            fi
+          done
+          echo "== exported JNI entry points =="
+          readelf --dyn-syms -W "$SO" | grep -c "Java_com_boardbridge_bridge_NativeBridge_" || true
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
