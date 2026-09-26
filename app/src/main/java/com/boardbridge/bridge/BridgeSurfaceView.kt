@@ -122,7 +122,10 @@ class BridgeSurfaceView @JvmOverloads constructor(
     private fun handleTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
         when (action) {
-            MotionEvent.ACTION_DOWN -> event.requestUnbufferedDispatch(event)
+            // Asks Android to deliver this source's motion events unbuffered, so
+            // the bridge sees a touch as it happens instead of in a batch. The
+            // method lives on `View` (API 21), not on `MotionEvent`.
+            MotionEvent.ACTION_DOWN -> requestUnbufferedDispatch(event)
             MotionEvent.ACTION_MOVE,
             MotionEvent.ACTION_POINTER_DOWN,
             MotionEvent.ACTION_POINTER_UP,
