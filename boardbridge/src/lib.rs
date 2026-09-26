@@ -29,9 +29,9 @@
 //! | [`input`] | SDL-shaped events, bounded queue, Android→SDL keymap | yes (unit-tested) |
 //! | [`runtime`] | configuration (portable) + bridge thread and registry (Android) | partly |
 //! | `android` | NDK window ownership, JNI→event adapters | no (Android) |
-//! | `egl` | `EGLDisplay`/`EGLContext`/`EGLSurface` in Rust | no (Android) |
-//! | `graphics` | backend trait, GLES implementation, Vulkan interface | no (Android) |
-//! | `render` | the bridge's own diagnostic renderer | no (Android) |
+//! | `egl` | `EGLDisplay`/`EGLContext`/`EGLSurface` in Rust | partly (EGL config/types on host) |
+//! | `graphics` | backend trait, GLES implementation, Vulkan interface | partly (enums/structs on host) |
+//! | `render` | the bridge's own diagnostic renderer | partly (mode enum on host) |
 //! | `platform` | who supplies windows/input: native, SDL3, GLFW | no (Android) |
 //! | `jni` | the exported entry points Kotlin calls | no (Android) |
 //!
@@ -79,18 +79,22 @@ pub mod lifecycle;
 pub mod log;
 pub mod runtime;
 
+// `egl`, `graphics` and `render` are compiled on every target: their *data*
+// types are pure (`ConfigRequest`, `RendererKind`, `GraphicsConfig`,
+// `DiagnosticMode`) and the runtime configuration carries them, so decoding
+// them from JNI is unit-tested on the CI runner. Each module gates only the
+// parts that talk to Android/EGL (`ffi`, `display`, `context`, `surface`,
+// `gles`, `vulkan`, `diagnostics`) behind `cfg(target_os = "android")`.
+pub mod egl;
+pub mod graphics;
+pub mod render;
+
 #[cfg(target_os = "android")]
 pub mod android;
-#[cfg(target_os = "android")]
-pub mod egl;
-#[cfg(target_os = "android")]
-pub mod graphics;
 #[cfg(target_os = "android")]
 pub mod jni;
 #[cfg(target_os = "android")]
 pub mod platform;
-#[cfg(target_os = "android")]
-pub mod render;
 
 pub use error::{Error, Result};
 

@@ -496,13 +496,21 @@ mod tests {
         machine.on(LifecycleEvent::Stopped);
         seen.insert(machine.reported_state());
 
-        assert_eq!(
-            seen,
-            ["NO_SURFACE", "PAUSED", "STOPPED", "STOPPING", "SURFACE_ACTIVE", "SURFACE_DESTROY_PENDING", "SURFACE_PENDING"]
-                .iter()
-                .map(|name| name.to_string())
-                .collect::<std::collections::BTreeSet<_>>()
-        );
+        // `reported_state` returns `&'static str`, so the set is a set of
+        // string slices — the expected names are spelled out here to catch a
+        // rename in either direction.
+        let expected: std::collections::BTreeSet<&str> = [
+            "NO_SURFACE",
+            "PAUSED",
+            "STOPPED",
+            "STOPPING",
+            "SURFACE_ACTIVE",
+            "SURFACE_DESTROY_PENDING",
+            "SURFACE_PENDING",
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(seen, expected);
     }
 
     #[test]

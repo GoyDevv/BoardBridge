@@ -3,28 +3,44 @@
 
 //! EGL in Rust (replaces the former `egl_core.{h,cpp}`).
 //!
+//! * [`config`] — [`config::ConfigRequest`]: pure data, compiled on every
+//!   target so the cross-platform `graphics` layer can carry one and so its
+//!   construction is unit-tested on the CI runner.
+//! * [`ffi`] — the EGL entry points, constants and types. The constants are also
+//!   host-visible; only the `extern "C"` declarations are Android-only.
 //! * [`display`] — `EGLDisplay` initialization and `EGLConfig` selection with a
-//!   documented fallback chain.
-//! * [`context`] — `EGLContext` creation with the ES 3.2 → 3.0 → legacy chain.
-//! * [`surface`] — window/pbuffer surfaces and [`surface::WindowBinding`], whose
-//!   field order guarantees "EGLSurface destroyed before its window is released".
-//! * [`ffi`] — the EGL entry points and constants.
+//!   documented fallback chain *(Android only)*.
+//! * [`context`] — `EGLContext` creation with the ES 3.2 → 3.0 → legacy chain
+//!   *(Android only)*.
+//! * [`surface`] — window/pbuffer surfaces and `WindowBinding`, whose field order
+//!   guarantees "EGLSurface destroyed before its window is released"
+//!   *(Android only)*.
 //!
 //! Threading: EGL handles are usable from any thread, but a *context* may be
 //! current on only one thread at a time, and a surface must not be destroyed
 //! while it is current anywhere. [`crate::graphics::gles`] enforces both; this
-//! module documents them where they are relevant ([`context::Context`],
-//! [`surface::WindowSurface`]).
+//! module documents them where they are relevant.
 
-pub mod context;
-pub mod display;
+pub mod config;
 pub mod ffi;
+
+#[cfg(target_os = "android")]
+pub mod context;
+#[cfg(target_os = "android")]
+pub mod display;
+#[cfg(target_os = "android")]
 pub mod surface;
 
+pub use config::ConfigRequest;
+
+#[cfg(target_os = "android")]
 pub use context::{Context, ContextRequest, CurrentTarget, ES3_FALLBACK_CHAIN};
-pub use display::{Config, ConfigRequest, Display};
+#[cfg(target_os = "android")]
+pub use display::{Config, Display};
+#[cfg(target_os = "android")]
 pub use surface::{PbufferSurface, WindowBinding, WindowSurface};
 
+#[cfg(target_os = "android")]
 use crate::error::{Error, Result};
 
 /// What EGL reports about itself, captured once at initialization.
@@ -70,7 +86,8 @@ impl DisplayInfo {
     }
 }
 
-/// Reads and clears the last EGL error.
+/// Reads and clears the last EGL error. Requires a live EGL implementation.
+#[cfg(target_os = "android")]
 pub fn last_error() -> ffi::EGLint {
     unsafe { ffi::eglGetError() }
 }
@@ -98,10 +115,40 @@ pub fn error_label(code: ffi::EGLint) -> &'static str {
 }
 
 /// Turns an `EGLBoolean` result into a [`Result`], capturing the EGL error.
+#[cfg(target_os = "android")]
 pub fn check(ok: ffi::EGLBoolean, op: &'static str) -> Result<()> {
     if ok == ffi::EGL_TRUE {
         Ok(())
     } else {
         Err(Error::graphics(op, last_error()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_info_is_readable_and_reports_extensions() {
+        let info = DisplayInfo {
+            major: 1,
+            minor: 5,
+            vendor: "Android".to_string(),
+            version: "1.5 Android META-EGL".to_string(),
+            client_apis: "OpenGL_ES".to_string(),
+            extensions: "EGL_KHR_fence_sync EGL_ANDROID_recordable".to_string(),
+        };
+        assert_eq!(info.version_label(), "1.5");
+        assert!(info.has_extension("EGL_KHR_fence_sync"));
+        assert!(!info.has_extension("EGL_KHR_no_config_context"));
+        assert!(info.describe().contains("Android"));
+    }
+
+    #[test]
+    fn error_labels_name_the_documented_codes() {
+        assert_eq!(error_label(ffi::EGL_SUCCESS), "EGL_SUCCESS");
+        assert_eq!(error_label(ffi::EGL_BAD_CONFIG), "EGL_BAD_CONFIG");
+        assert_eq!(error_label(ffi::EGL_CONTEXT_LOST), "EGL_CONTEXT_LOST");
+        assert_eq!(error_label(0x1234), "EGL_UNKNOWN");
     }
 }

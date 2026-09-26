@@ -37,6 +37,9 @@ use crate::bb_warn;
 use crate::graphics::ffi as gl;
 use crate::input::event::{InputEvent, TouchPhase};
 use crate::input::sdl_tables;
+// The mode enum is *pure* and therefore lives in the parent module, where it is
+// compiled and unit-tested on every target; the renderer only consumes it.
+use crate::render::DiagnosticMode;
 
 /// Fixed solid test colour: RGB ≈ (0, 158, 166), the value CI verifies.
 const SOLID_R: gl::GLfloat = 0.00;
@@ -45,48 +48,6 @@ const SOLID_B: gl::GLfloat = 0.65;
 
 /// How often the frame statistics line is emitted.
 const STATS_INTERVAL_SECS: f32 = 1.0;
-
-/// Diagnostic render mode.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(i32)]
-pub enum DiagnosticMode {
-    /// Clear to black, nothing else.
-    None = 0,
-    /// Clear to a fixed colour.
-    #[default]
-    Solid = 1,
-    /// Spinning shaded triangle.
-    Triangle = 2,
-}
-
-impl DiagnosticMode {
-    /// Decodes the value sent from Kotlin.
-    pub fn from_jni(value: i32) -> DiagnosticMode {
-        match value {
-            1 => DiagnosticMode::Solid,
-            2 => DiagnosticMode::Triangle,
-            _ => DiagnosticMode::None,
-        }
-    }
-
-    /// Name used in the log lines (`SOLID`, `TRIANGLE`, `NONE`).
-    pub fn name(self) -> &'static str {
-        match self {
-            DiagnosticMode::None => "NONE",
-            DiagnosticMode::Solid => "SOLID",
-            DiagnosticMode::Triangle => "TRIANGLE",
-        }
-    }
-
-    /// Next mode in the toggle cycle.
-    pub fn next(self) -> DiagnosticMode {
-        match self {
-            DiagnosticMode::None => DiagnosticMode::Solid,
-            DiagnosticMode::Solid => DiagnosticMode::Triangle,
-            DiagnosticMode::Triangle => DiagnosticMode::Solid,
-        }
-    }
-}
 
 /// Draws the bridge's own diagnostic content.
 pub struct DiagnosticRenderer {
@@ -511,6 +472,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Spelled out so the mode assertions keep resolving even if the module-level
+    // import above is reorganised.
+    use crate::render::DiagnosticMode;
 
     #[test]
     fn mode_cycle_and_names() {

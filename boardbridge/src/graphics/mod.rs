@@ -8,22 +8,36 @@
 //! a context that can be made current on whichever thread the game renders from,
 //! and the present operation. That is what [`GraphicsBackend`] describes.
 //!
-//! * [`gles`] — OpenGL ES 3.x via EGL. **Implemented.**
+//! * [`gles`] — OpenGL ES 3.x via EGL. **Implemented.** *(Android only.)*
 //! * [`vulkan`] — Vulkan. **Interface only**; see its documentation for exactly
 //!   what remains to be done. Minecraft's own Vulkan migration (announced for
 //!   Java Edition) is the reason the seam exists now rather than later.
+//!   *(Android only.)*
 //!
 //! Adding a backend means implementing this trait; nothing else in the bridge
 //! needs to change. The runtime only ever sees `Arc<dyn GraphicsBackend>`.
+//!
+//! The *data* half of this module ([`RendererKind`], [`GraphicsConfig`],
+//! [`BackendStatus`], [`RendererInfo`], [`GraphicsStats`], [`ThreadRole`]) is
+//! pure and compiled on every target, because `RuntimeConfig` carries it and its
+//! decoding is unit-tested on the CI runner. Only the [`GraphicsBackend`] trait
+//! itself — which takes ownership of an `ANativeWindow` — and the concrete
+//! backends are Android-only.
 
+#[cfg(target_os = "android")]
 pub mod ffi;
+#[cfg(target_os = "android")]
 pub mod gles;
+#[cfg(target_os = "android")]
 pub mod vulkan;
 
+#[cfg(target_os = "android")]
 use std::sync::Arc;
 
+#[cfg(target_os = "android")]
 use crate::android::surface::{OwnedNativeWindow, SurfaceSize};
 use crate::egl::ConfigRequest;
+#[cfg(target_os = "android")]
 use crate::error::Result;
 
 /// Which graphics API to use.
@@ -244,6 +258,10 @@ impl Default for GraphicsConfig {
 /// releases everything and is idempotent. Implementations must never release an
 /// `ANativeWindow` while an `EGLSurface` created from it exists, and must never
 /// let work touch a surface after `unbind_window` returned.
+///
+/// Android-only: `bind_window` takes ownership of an `ANativeWindow`, which has
+/// no counterpart on a host build.
+#[cfg(target_os = "android")]
 pub trait GraphicsBackend: Send + Sync {
     /// Human-readable backend name (`"OpenGL ES"`).
     fn name(&self) -> &'static str;
@@ -317,6 +335,7 @@ pub trait GraphicsBackend: Send + Sync {
 /// backend; `Vulkan` returns a backend object whose [`GraphicsBackend::status`]
 /// is [`BackendStatus::InterfaceOnly`] so diagnostics can report precisely what
 /// is missing instead of failing with a bare error.
+#[cfg(target_os = "android")]
 pub fn create(kind: RendererKind, config: GraphicsConfig) -> Arc<dyn GraphicsBackend> {
     match kind {
         RendererKind::Vulkan => Arc::new(vulkan::VulkanBackend::new(config)),

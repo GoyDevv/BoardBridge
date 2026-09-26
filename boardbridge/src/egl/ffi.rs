@@ -20,7 +20,11 @@
 //! themselves are therefore `Send`-transparent, which is why the raw-pointer
 //! wrappers in this module can be marked `Send` with a written safety argument.
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_void;
+
+// `c_char` is only used by the declarations below, which are Android-only.
+#[cfg(target_os = "android")]
+use core::ffi::c_char;
 
 /// Opaque `EGLDisplay`.
 pub type EGLDisplay = *mut c_void;
@@ -173,6 +177,10 @@ pub const EGL_BAD_SURFACE: EGLint = 0x300D;
 /// `EGL_CONTEXT_LOST`.
 pub const EGL_CONTEXT_LOST: EGLint = 0x300E;
 
+// The declarations are Android-only: nothing on a host build may call them, and
+// gating them keeps `cargo test` linkable without a libEGL. The constants above
+// are shared, which is why this file is not Android-gated as a whole.
+#[cfg(target_os = "android")]
 #[link(name = "EGL")]
 extern "C" {
     /// Returns the display for `EGL_DEFAULT_DISPLAY`.

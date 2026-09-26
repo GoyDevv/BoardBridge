@@ -246,7 +246,10 @@ mod tests {
         assert_eq!(graphics.swap_interval, 0);
         assert!(!graphics.preserve_context);
         assert_eq!(graphics.drain_timeout_ms, 42);
-        assert_eq!(graphics.config_request, crate::egl::ConfigRequest::launcher());
+        assert_eq!(
+            graphics.config_request,
+            crate::egl::ConfigRequest::launcher()
+        );
     }
 
     #[test]

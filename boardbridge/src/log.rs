@@ -77,7 +77,9 @@ pub fn emit(level: Level, args: fmt::Arguments<'_>) {
     if !enabled(level) {
         return;
     }
-    let message = fmt::format(args);
+    // `Arguments` implements `Display`, so this is the allocation the message
+    // needs and nothing more (there is no `fmt::format` outside `alloc`).
+    let message = args.to_string();
     write_line(level, &message);
 }
 

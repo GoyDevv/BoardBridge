@@ -8,111 +8,18 @@ use core::ptr;
 
 use crate::bb_debug;
 use crate::bb_warn;
+use crate::egl::config::ConfigRequest;
 use crate::egl::ffi::{
-    self, EGL_ALPHA_SIZE, EGL_BLUE_SIZE, EGL_CONFIG_CAVEAT, EGL_DEPTH_SIZE, EGL_EXTENSIONS,
-    EGL_GREEN_SIZE, EGL_NATIVE_VISUAL_ID, EGL_NONE, EGL_OPENGL_ES3_BIT, EGL_PBUFFER_BIT,
-    EGL_RED_SIZE, EGL_RENDERABLE_TYPE, EGL_SAMPLES, EGL_STENCIL_SIZE, EGL_SURFACE_TYPE,
-    EGL_TRUE, EGL_VENDOR, EGL_VERSION, EGL_WINDOW_BIT, EGLConfig, EGLDisplay, EGLint,
+    self, EGL_ALPHA_SIZE, EGL_CONFIG_CAVEAT, EGL_DEPTH_SIZE, EGL_EXTENSIONS, EGL_NATIVE_VISUAL_ID,
+    EGL_PBUFFER_BIT, EGL_SAMPLES, EGL_STENCIL_SIZE, EGL_SURFACE_TYPE, EGL_TRUE, EGL_VENDOR,
+    EGL_VERSION, EGLConfig, EGLDisplay, EGLint,
 };
 use crate::egl::{last_error, DisplayInfo};
 use crate::error::{Error, Result};
 
-/// What the bridge asks for when choosing an `EGLConfig`.
-///
-/// Kept as data (not a hard-coded attribute array) so the Vulkan/ANGLE paths and
-/// the diagnostics can change requirements without touching the EGL code, and so
-/// the fallback chain is explicit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ConfigRequest {
-    /// Alpha channel bits (8 for a translucent window, 0 to save bandwidth).
-    pub alpha: EGLint,
-    /// Depth bits.
-    pub depth: EGLint,
-    /// Stencil bits.
-    pub stencil: EGLint,
-    /// `EGL_SURFACE_TYPE` bits.
-    pub surface_type: EGLint,
-    /// `EGL_RENDERABLE_TYPE` bits.
-    pub renderable_type: EGLint,
-}
-
-impl ConfigRequest {
-    /// Default request for a launcher window: RGBA8888, depth 24, stencil 8,
-    /// window + pbuffer surfaces, OpenGL ES 3.
-    ///
-    /// The pbuffer bit is requested up front because the bridge needs an
-    /// offscreen surface to keep the game's context alive when Android takes the
-    /// window away (`docs/THREADING.md`, "surface loss").
-    pub const fn launcher() -> ConfigRequest {
-        ConfigRequest {
-            alpha: 8,
-            depth: 24,
-            stencil: 8,
-            surface_type: EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
-            renderable_type: EGL_OPENGL_ES3_BIT,
-        }
-    }
-
-    /// A request without alpha (the window is opaque anyway).
-    pub const fn without_alpha(&self) -> ConfigRequest {
-        ConfigRequest {
-            alpha: 0,
-            ..*self
-        }
-    }
-
-    /// Reduced depth/stencil: some mobile drivers expose no 24/8 config.
-    pub const fn reduced_depth(&self) -> ConfigRequest {
-        ConfigRequest {
-            depth: 16,
-            stencil: 0,
-            ..*self
-        }
-    }
-
-    /// `EGL_SURFACE_TYPE` narrowed to windows only (used when a driver reports
-    /// no config that can do both).
-    pub const fn window_only(&self) -> ConfigRequest {
-        ConfigRequest {
-            surface_type: EGL_WINDOW_BIT,
-            ..*self
-        }
-    }
-
-    fn attribute_list(&self) -> [EGLint; 15] {
-        [
-            EGL_RENDERABLE_TYPE,
-            self.renderable_type,
-            EGL_SURFACE_TYPE,
-            self.surface_type,
-            EGL_RED_SIZE,
-            8,
-            EGL_GREEN_SIZE,
-            8,
-            EGL_BLUE_SIZE,
-            8,
-            EGL_ALPHA_SIZE,
-            self.alpha,
-            EGL_DEPTH_SIZE,
-            self.depth,
-            EGL_NONE,
-        ]
-    }
-
-    /// Human-readable summary for logs.
-    pub fn describe(&self) -> String {
-        format!(
-            "rgba8 alpha={} depth={} stencil={} surface=0x{:x} renderable=0x{:x}",
-            self.alpha, self.depth, self.stencil, self.surface_type, self.renderable_type
-        )
-    }
-}
-
-impl Default for ConfigRequest {
-    fn default() -> Self {
-        ConfigRequest::launcher()
-    }
-}
+// `ConfigRequest` lives in `crate::egl::config`: it is pure data that the
+// cross-platform `graphics` layer also carries, so it must compile on hosts as
+// well as on Android.
 
 /// A chosen `EGLConfig` plus the attributes the bridge cares about.
 #[derive(Clone, Copy, Debug)]
