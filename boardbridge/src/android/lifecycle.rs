@@ -82,9 +82,18 @@ mod tests {
 
     #[test]
     fn callbacks_map_to_the_expected_events() {
-        assert_eq!(SurfaceCallback::Created.event(), LifecycleEvent::SurfaceCreated);
-        assert_eq!(SurfaceCallback::Changed.event(), LifecycleEvent::SurfaceChanged);
-        assert_eq!(SurfaceCallback::Destroyed.event(), LifecycleEvent::SurfaceDestroyed);
+        assert_eq!(
+            SurfaceCallback::Created.event(),
+            LifecycleEvent::SurfaceCreated
+        );
+        assert_eq!(
+            SurfaceCallback::Changed.event(),
+            LifecycleEvent::SurfaceChanged
+        );
+        assert_eq!(
+            SurfaceCallback::Destroyed.event(),
+            LifecycleEvent::SurfaceDestroyed
+        );
         assert_eq!(ActivityCallback::Resume.event(), LifecycleEvent::Resume);
         assert_eq!(ActivityCallback::Pause.event(), LifecycleEvent::Pause);
         assert_eq!(SurfaceCallback::Created.name(), "surfaceCreated");

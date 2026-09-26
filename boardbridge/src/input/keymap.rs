@@ -230,10 +230,17 @@ mod tests {
     fn unmapped_and_out_of_range_keycodes_degrade_to_unknown() {
         // AKEYCODE_CAMERA is a phone-only key SDL deliberately leaves unmapped.
         assert_eq!(scancode_from_android_keycode(27), sdl::SDL_SCANCODE_UNKNOWN);
-        assert_eq!(scancode_from_android_keycode(9_999), sdl::SDL_SCANCODE_UNKNOWN);
+        assert_eq!(
+            scancode_from_android_keycode(9_999),
+            sdl::SDL_SCANCODE_UNKNOWN
+        );
         assert_eq!(scancode_from_android_keycode(-5), sdl::SDL_SCANCODE_UNKNOWN);
-        assert!(sdl::ANDROID_KEYCODE_UNMAPPED_COUNT > 0);
     }
+
+    // The generated tables must really leave some keycodes unmapped, otherwise
+    // the three assertions above would pass for the wrong reason. Checked at
+    // compile time, so clippy does not have to treat it as a constant assertion.
+    const _: () = assert!(sdl::ANDROID_KEYCODE_UNMAPPED_COUNT > 0);
 
     #[test]
     fn keycodes_are_characters_when_the_layout_produces_one() {
@@ -308,17 +315,29 @@ mod tests {
             gamepad_axis_from_android_axis(sdl::AMOTION_EVENT_AXIS_LTRIGGER),
             Some(sdl::SDL_GAMEPAD_AXIS_LEFT_TRIGGER)
         );
-        assert_eq!(gamepad_axis_from_android_axis(sdl::AMOTION_EVENT_AXIS_VSCROLL), None);
+        assert_eq!(
+            gamepad_axis_from_android_axis(sdl::AMOTION_EVENT_AXIS_VSCROLL),
+            None
+        );
 
         // AKEYCODE_BUTTON_A = 96 -> SDL_GAMEPAD_BUTTON_SOUTH.
-        assert_eq!(gamepad_button_from_android_keycode(96), Some(sdl::SDL_GAMEPAD_BUTTON_SOUTH));
+        assert_eq!(
+            gamepad_button_from_android_keycode(96),
+            Some(sdl::SDL_GAMEPAD_BUTTON_SOUTH)
+        );
         assert_eq!(gamepad_button_from_android_keycode(29), None);
     }
 
     #[test]
     fn axis_values_are_clamped_per_axis_kind() {
-        assert_eq!(normalize_gamepad_axis_value(sdl::SDL_GAMEPAD_AXIS_LEFTX, 1.5), 1.0);
-        assert_eq!(normalize_gamepad_axis_value(sdl::SDL_GAMEPAD_AXIS_LEFTX, -1.5), -1.0);
+        assert_eq!(
+            normalize_gamepad_axis_value(sdl::SDL_GAMEPAD_AXIS_LEFTX, 1.5),
+            1.0
+        );
+        assert_eq!(
+            normalize_gamepad_axis_value(sdl::SDL_GAMEPAD_AXIS_LEFTX, -1.5),
+            -1.0
+        );
         assert_eq!(
             normalize_gamepad_axis_value(sdl::SDL_GAMEPAD_AXIS_LEFT_TRIGGER, -0.4),
             0.0

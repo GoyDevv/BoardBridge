@@ -131,7 +131,11 @@ pub fn describe_all() -> String {
     .map(|kind| {
         let backend = backend(*kind);
         match backend.remaining_work() {
-            Some(remaining) => format!("{}={} ({remaining})", backend.name(), backend.status().label()),
+            Some(remaining) => format!(
+                "{}={} ({remaining})",
+                backend.name(),
+                backend.status().label()
+            ),
             None => format!("{}={}", backend.name(), backend.status().label()),
         }
     })
@@ -154,12 +158,16 @@ mod tests {
 
     #[test]
     fn only_the_android_backend_claims_to_be_implemented() {
-        assert!(backend(PlatformKind::AndroidNative).status().is_implemented());
+        assert!(backend(PlatformKind::AndroidNative)
+            .status()
+            .is_implemented());
         assert!(!backend(PlatformKind::Sdl3).status().is_implemented());
         assert!(!backend(PlatformKind::GlfwCompat).status().is_implemented());
         assert!(backend(PlatformKind::Sdl3).remaining_work().is_some());
         assert!(backend(PlatformKind::GlfwCompat).remaining_work().is_some());
-        assert!(backend(PlatformKind::AndroidNative).remaining_work().is_none());
+        assert!(backend(PlatformKind::AndroidNative)
+            .remaining_work()
+            .is_none());
     }
 
     #[test]

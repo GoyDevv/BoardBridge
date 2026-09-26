@@ -142,7 +142,10 @@ impl DiagnosticRenderer {
             match event {
                 InputEvent::Touch { phase, x, y, .. } if *phase == TouchPhase::Down => {
                     let mode = self.toggle_mode();
-                    bb_info!("touch DOWN at ({x:.0}, {y:.0}) -> render mode = {}", mode.name());
+                    bb_info!(
+                        "touch DOWN at ({x:.0}, {y:.0}) -> render mode = {}",
+                        mode.name()
+                    );
                     changed = Some(mode);
                 }
                 InputEvent::Key {
@@ -361,8 +364,9 @@ impl DiagnosticRenderer {
         self.program = program;
         self.vao = vao;
         self.vbo = vbo;
-        self.angle_uniform =
-            unsafe { gl::glGetUniformLocation(program, UNIFORM_ANGLE.as_ptr() as *const gl::GLchar) };
+        self.angle_uniform = unsafe {
+            gl::glGetUniformLocation(program, UNIFORM_ANGLE.as_ptr() as *const gl::GLchar)
+        };
         self.program_ready = true;
         bb_info!("triangle diagnostics: program linked");
     }
@@ -374,9 +378,7 @@ impl Drop for DiagnosticRenderer {
         // context is current; dropping here would need a current context, which
         // is not guaranteed at this point.
         if self.program_ready {
-            bb_debug!(
-                "diagnostic GL objects were not released before drop (context likely gone)"
-            );
+            bb_debug!("diagnostic GL objects were not released before drop (context likely gone)");
         }
     }
 }
@@ -508,7 +510,9 @@ mod tests {
     fn first_frame_log_is_emitted_exactly_once() {
         let mut renderer = DiagnosticRenderer::new(DiagnosticMode::Solid);
         let size = SurfaceSize::new(1080, 2400);
-        let line = renderer.take_first_frame_log(size).expect("first frame log");
+        let line = renderer
+            .take_first_frame_log(size)
+            .expect("first frame log");
         assert_eq!(line, "First frame rendered (1080x2400, mode=SOLID)");
         assert!(renderer.take_first_frame_log(size).is_none());
     }
@@ -517,7 +521,10 @@ mod tests {
     fn stats_log_respects_the_one_second_window() {
         let mut renderer = DiagnosticRenderer::new(DiagnosticMode::Solid);
         let size = SurfaceSize::new(1080, 2400);
-        assert!(renderer.take_stats_log(size).is_none(), "too early for stats");
+        assert!(
+            renderer.take_stats_log(size).is_none(),
+            "too early for stats"
+        );
         // Pretend a window has passed.
         renderer.last_stats = Instant::now() - std::time::Duration::from_millis(1500);
         renderer.frames_since_stats = 60;

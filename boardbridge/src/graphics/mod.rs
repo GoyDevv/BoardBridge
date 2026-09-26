@@ -284,7 +284,8 @@ pub trait GraphicsBackend: Send + Sync {
     ///
     /// Takes ownership of `window`; the backend releases it in
     /// `unbind_window`/`shutdown` or, on failure, immediately.
-    fn bind_window(&self, window: OwnedNativeWindow, requested: SurfaceSize) -> Result<SurfaceSize>;
+    fn bind_window(&self, window: OwnedNativeWindow, requested: SurfaceSize)
+        -> Result<SurfaceSize>;
 
     /// Retires the current binding (destroy `EGLSurface`, release the window).
     ///
@@ -377,7 +378,9 @@ mod tests {
 
     #[test]
     fn backend_status_reports_remaining_work() {
-        let stub = BackendStatus::InterfaceOnly { remaining: "link SDL3" };
+        let stub = BackendStatus::InterfaceOnly {
+            remaining: "link SDL3",
+        };
         assert!(!stub.is_implemented());
         assert_eq!(stub.remaining(), Some("link SDL3"));
         assert_eq!(stub.label(), "interface-only");

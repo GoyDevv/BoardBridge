@@ -184,7 +184,12 @@ mod tests {
             timestamp_ms: 10,
         });
         match event {
-            InputEvent::Key { scancode, keycode, modifiers, .. } => {
+            InputEvent::Key {
+                scancode,
+                keycode,
+                modifiers,
+                ..
+            } => {
                 assert_eq!(scancode, sdl::SDL_SCANCODE_A);
                 assert_eq!(keycode, 'A' as u32);
                 assert_eq!(modifiers, sdl::SDL_KMOD_LSHIFT);
@@ -264,7 +269,9 @@ mod tests {
         );
         let button = mouse_button_event(2, true, 10.0, 20.0, 16).unwrap();
         match button {
-            InputEvent::MouseButton { button, pressed, .. } => {
+            InputEvent::MouseButton {
+                button, pressed, ..
+            } => {
                 assert_eq!(button, MouseButton::Right);
                 assert!(pressed);
             }
@@ -277,7 +284,9 @@ mod tests {
     fn touch_pressure_is_clamped() {
         let event = touch_event(0, TouchPhase::Down, 1.0, 2.0, 5.0, 18);
         match event {
-            InputEvent::Touch { pressure, phase, .. } => {
+            InputEvent::Touch {
+                pressure, phase, ..
+            } => {
                 assert_eq!(pressure, 1.0);
                 assert_eq!(phase, TouchPhase::Down);
             }

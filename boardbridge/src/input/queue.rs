@@ -148,13 +148,17 @@ impl EventQueue {
     /// game cannot observe an outdated state.
     pub fn remove_lifecycle_notices(&self) {
         let mut inner = self.lock();
-        inner.events.retain(|event| !matches!(event, InputEvent::Lifecycle(_)));
+        inner
+            .events
+            .retain(|event| !matches!(event, InputEvent::Lifecycle(_)));
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         // A poisoned queue must not take the whole app down: input is not worth
         // aborting for. `unwrap_or_else` recovers the inner value.
-        self.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -201,7 +205,11 @@ mod tests {
         }
         assert_eq!(queue.len(), 3);
         assert_eq!(queue.stats().dropped, 2);
-        assert_eq!(queue.pop().unwrap().timestamp_ms(), 2, "oldest events are evicted");
+        assert_eq!(
+            queue.pop().unwrap().timestamp_ms(),
+            2,
+            "oldest events are evicted"
+        );
         assert_eq!(queue.pop().unwrap().timestamp_ms(), 3);
         assert_eq!(queue.pop().unwrap().timestamp_ms(), 4);
         assert_eq!(queue.stats().pushed, 5);
@@ -213,7 +221,10 @@ mod tests {
         let queue = EventQueue::new(2);
         assert!(queue.push(touch(0)));
         assert!(queue.push(touch(1)));
-        assert!(!queue.push(touch(2)), "the third push evicted the first event");
+        assert!(
+            !queue.push(touch(2)),
+            "the third push evicted the first event"
+        );
     }
 
     #[test]
@@ -245,9 +256,9 @@ mod tests {
     fn lifecycle_notices_can_be_superseded() {
         let queue = EventQueue::new(8);
         queue.push(touch(0));
-        queue.push(InputEvent::Lifecycle(crate::input::event::LifecycleNotice::SurfaceLost {
-            timestamp_ms: 1,
-        }));
+        queue.push(InputEvent::Lifecycle(
+            crate::input::event::LifecycleNotice::SurfaceLost { timestamp_ms: 1 },
+        ));
         queue.push(InputEvent::Lifecycle(
             crate::input::event::LifecycleNotice::SurfaceAvailable {
                 width: 100,
@@ -300,7 +311,9 @@ mod tests {
             timestamp_ms: 5,
         });
         match queue.pop().unwrap() {
-            InputEvent::Key { scancode, keycode, .. } => {
+            InputEvent::Key {
+                scancode, keycode, ..
+            } => {
                 assert_eq!(scancode, 4);
                 assert_eq!(keycode, 0x61);
             }

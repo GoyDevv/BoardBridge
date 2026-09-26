@@ -149,7 +149,10 @@ pub extern "system" fn Java_com_boardbridge_bridge_NativeBridge_surfaceChanged<'
 ) -> jint {
     helpers::guarded("surfaceChanged", || {
         let size = SurfaceSize::new(width, height);
-        bb_debug!("surfaceChanged: {} (buffer format 0x{format:x})", size.label());
+        bb_debug!(
+            "surfaceChanged: {} (buffer format 0x{format:x})",
+            size.label()
+        );
         match registry::with_runtime(|runtime| runtime.surface_changed(size)) {
             Some(()) => OK,
             None => Error::NotInitialized.code(),
@@ -408,7 +411,11 @@ pub extern "system" fn Java_com_boardbridge_bridge_NativeBridge_sendKey<'local>(
                 android_keycode: android_key_code,
                 pressed: pressed != 0,
                 repeat: repeat != 0,
-                unicode: if unicode_char > 0 { unicode_char as u32 } else { 0 },
+                unicode: if unicode_char > 0 {
+                    unicode_char as u32
+                } else {
+                    0
+                },
                 device: DeviceKind::from_jni(device_kind),
                 device_id,
                 // Filled in by `Runtime::key_input` from the tracked state.
@@ -457,14 +464,18 @@ pub extern "system" fn Java_com_boardbridge_bridge_NativeBridge_sendGamepadAxis<
     event_time_ms: jlong,
 ) -> jint {
     helpers::guarded("sendGamepadAxis", || {
-        let event =
-            match android_input::gamepad_axis_event(device_id, android_axis, value, event_time_ms) {
-                Some(event) => event,
-                None => {
-                    bb_debug!("gamepad axis {android_axis} (0x{android_axis:x}) is not mapped");
-                    return OK;
-                }
-            };
+        let event = match android_input::gamepad_axis_event(
+            device_id,
+            android_axis,
+            value,
+            event_time_ms,
+        ) {
+            Some(event) => event,
+            None => {
+                bb_debug!("gamepad axis {android_axis} (0x{android_axis:x}) is not mapped");
+                return OK;
+            }
+        };
         match registry::with_runtime(|runtime| runtime.push_input(event)) {
             Some(_) => OK,
             None => Error::NotInitialized.code(),
@@ -609,7 +620,10 @@ pub extern "system" fn Java_com_boardbridge_bridge_NativeBridge_runSelfTest<'loc
 ) -> jstring {
     helpers::guarded("runSelfTest", || {
         let report = match registry::with_runtime(|runtime| runtime.self_test()) {
-            Some(report) => format!("{report}\n  platform_backends=[{}]", platform::describe_all()),
+            Some(report) => format!(
+                "{report}\n  platform_backends=[{}]",
+                platform::describe_all()
+            ),
             None => format!(
                 "BoardBridge self-test (abi={ABI_VERSION})\n  runtime=absent\nresult=PARTIAL"
             ),

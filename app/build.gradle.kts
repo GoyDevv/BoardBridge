@@ -1,4 +1,8 @@
 import org.gradle.api.tasks.PathSensitivity
+// Imported explicitly: inside a Gradle script `java` resolves to the Java
+// plugin's extension, so a fully qualified `java.util.Properties()` does not
+// compile ("Unresolved reference: util").
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -116,7 +120,7 @@ fun resolveNdkHome(): File? {
     val sdkRoot = System.getenv("ANDROID_SDK_ROOT")?.takeIf { it.isNotBlank() }
         ?: System.getenv("ANDROID_HOME")?.takeIf { it.isNotBlank() }
         ?: rootProject.file("local.properties").takeIf { it.isFile }?.let { properties ->
-            java.util.Properties()
+            Properties()
                 .apply { properties.inputStream().use { load(it) } }
                 .getProperty("sdk.dir")
         }
@@ -173,7 +177,10 @@ if (skipRust) {
     logger.lifecycle("skipRust is set: libboardbridge.so is not rebuilt from boardbridge/")
 } else {
     // The .so must exist before AGP merges native libraries into the APK.
-    tasks.named("preBuild") {
+    // `configure {}` (rather than `tasks.named("preBuild") {}`) keeps this
+    // branch `Unit`-typed, which is what the Kotlin DSL expects from an
+    // if/else statement and what silences the "implicitly cast to Any" warning.
+    tasks.named("preBuild").configure {
         dependsOn(cargoBuildBoardBridge)
     }
 }

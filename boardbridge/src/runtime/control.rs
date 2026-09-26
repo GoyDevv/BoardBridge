@@ -336,7 +336,9 @@ impl Runtime {
         let handle = thread::Builder::new()
             .name(BRIDGE_THREAD_NAME.to_string())
             .spawn(move || bridge_thread_main(thread_shared))
-            .map_err(|error| Error::Message(format!("could not start the bridge thread: {error}")))?;
+            .map_err(|error| {
+                Error::Message(format!("could not start the bridge thread: {error}"))
+            })?;
         bb_info!("runtime created ({})", config.describe());
         Ok(Runtime {
             shared,
@@ -523,7 +525,8 @@ impl Runtime {
             match backend.renderer_info() {
                 Ok(info) => {
                     let summary = info.summary();
-                    self.shared.publish_renderer_info(summary.clone(), info.describe());
+                    self.shared
+                        .publish_renderer_info(summary.clone(), info.describe());
                     return summary;
                 }
                 Err(error) => {
@@ -618,7 +621,11 @@ impl Runtime {
         report.push_str(&format!("BoardBridge self-test (abi={ABI_VERSION})\n"));
         report.push_str(&format!("  thread_running={running}\n"));
         report.push_str(&format!("  lifecycle: {}\n", lifecycle.summary()));
-        report.push_str(&format!("  loop={} diag={}\n", loop_mode.name(), diagnostic_mode.name()));
+        report.push_str(&format!(
+            "  loop={} diag={}\n",
+            loop_mode.name(),
+            diagnostic_mode.name()
+        ));
         report.push_str(&format!(
             "  backend: {} ({}){}\n",
             if info.backend_name.is_empty() {
@@ -659,8 +666,16 @@ impl Runtime {
             pass(backend_ok),
             pass(egl_ok),
             pass(renderer_ok),
-            if lifecycle.is_bound() { "bound" } else { "none" },
-            if queue.capacity > 0 { "ok" } else { "misconfigured" }
+            if lifecycle.is_bound() {
+                "bound"
+            } else {
+                "none"
+            },
+            if queue.capacity > 0 {
+                "ok"
+            } else {
+                "misconfigured"
+            }
         ));
         if !info.last_error.is_empty() {
             report.push_str(&format!("  last_error: {}\n", info.last_error));
@@ -841,7 +856,9 @@ fn bridge_thread_main(shared: Arc<Shared>) {
                     if let Some(latest) = latest_attach {
                         if epoch < latest {
                             // Rotation storm: a newer surface is already queued.
-                            bb_debug!("dropping superseded surface attach (epoch {epoch} < {latest})");
+                            bb_debug!(
+                                "dropping superseded surface attach (epoch {epoch} < {latest})"
+                            );
                             drop(window);
                             shared.record(|stats| stats.dropped_attaches += 1);
                             complete(&shared, id);
@@ -1136,7 +1153,10 @@ mod tests {
         let shared = Shared::new(RuntimeConfig::default());
         assert!(shared.backend().is_err());
         assert!(shared.input.is_empty());
-        assert_eq!(shared.queue_stats().capacity, RuntimeConfig::default().input_capacity);
+        assert_eq!(
+            shared.queue_stats().capacity,
+            RuntimeConfig::default().input_capacity
+        );
         assert_eq!(shared.modifiers_lock().bits(), 0);
     }
 

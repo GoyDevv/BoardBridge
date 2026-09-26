@@ -386,7 +386,10 @@ mod tests {
         assert_eq!(notice.timestamp_ms(), 9);
         assert_eq!(notice.kind_name(), "lifecycle");
 
-        let text = InputEvent::Text { text: "hi".to_string(), timestamp_ms: 11 };
+        let text = InputEvent::Text {
+            text: "hi".to_string(),
+            timestamp_ms: 11,
+        };
         assert_eq!(text.timestamp_ms(), 11);
     }
 }

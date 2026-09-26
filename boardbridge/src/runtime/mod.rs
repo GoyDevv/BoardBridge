@@ -41,7 +41,9 @@ pub mod control;
 #[cfg(target_os = "android")]
 pub mod registry;
 
-pub use config::{LoopMode, RuntimeConfig, FLAG_DIAGNOSTIC_LOGS, FLAG_PRESERVE_CONTEXT, FLAG_VSYNC};
+pub use config::{
+    LoopMode, RuntimeConfig, FLAG_DIAGNOSTIC_LOGS, FLAG_PRESERVE_CONTEXT, FLAG_VSYNC,
+};
 
 #[cfg(target_os = "android")]
 pub use control::Runtime;

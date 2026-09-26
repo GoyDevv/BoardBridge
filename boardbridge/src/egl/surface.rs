@@ -20,7 +20,7 @@ use core::ptr;
 use crate::android::surface::{OwnedNativeWindow, SurfaceSize};
 use crate::bb_debug;
 use crate::bb_warn;
-use crate::egl::ffi::{self, EGLDisplay, EGLSurface, EGL_TRUE, EGL_WIDTH, EGL_HEIGHT, EGLint};
+use crate::egl::ffi::{self, EGLDisplay, EGLSurface, EGLint, EGL_HEIGHT, EGL_TRUE, EGL_WIDTH};
 use crate::egl::{last_error, Config, Display};
 use crate::error::{Error, Result};
 
@@ -164,7 +164,8 @@ impl PbufferSurface {
         let width = size.width.max(1);
         let height = size.height.max(1);
         let attribs: [EGLint; 5] = [EGL_WIDTH, width, EGL_HEIGHT, height, ffi::EGL_NONE];
-        let raw = unsafe { ffi::eglCreatePbufferSurface(display.raw(), config.raw(), attribs.as_ptr()) };
+        let raw =
+            unsafe { ffi::eglCreatePbufferSurface(display.raw(), config.raw(), attribs.as_ptr()) };
         if raw == ffi::EGL_NO_SURFACE {
             return Err(Error::graphics("eglCreatePbufferSurface", last_error()));
         }

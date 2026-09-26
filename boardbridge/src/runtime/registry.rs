@@ -109,7 +109,10 @@ mod tests {
         assert!(with_runtime(|_| ()).is_some());
         destroy().expect("destroy succeeds");
         assert!(!exists());
-        assert_eq!(destroy().expect_err("double destroy is an error"), Error::NotInitialized);
+        assert_eq!(
+            destroy().expect_err("double destroy is an error"),
+            Error::NotInitialized
+        );
         assert!(with_runtime(|_| ()).is_none());
         assert_eq!(
             try_with(|_| Ok(())).expect_err("no runtime"),

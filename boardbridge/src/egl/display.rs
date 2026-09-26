@@ -10,9 +10,9 @@ use crate::bb_debug;
 use crate::bb_warn;
 use crate::egl::config::ConfigRequest;
 use crate::egl::ffi::{
-    self, EGL_ALPHA_SIZE, EGL_CONFIG_CAVEAT, EGL_DEPTH_SIZE, EGL_EXTENSIONS, EGL_NATIVE_VISUAL_ID,
-    EGL_PBUFFER_BIT, EGL_SAMPLES, EGL_STENCIL_SIZE, EGL_SURFACE_TYPE, EGL_TRUE, EGL_VENDOR,
-    EGL_VERSION, EGLConfig, EGLDisplay, EGLint,
+    self, EGLConfig, EGLDisplay, EGLint, EGL_ALPHA_SIZE, EGL_CONFIG_CAVEAT, EGL_DEPTH_SIZE,
+    EGL_EXTENSIONS, EGL_NATIVE_VISUAL_ID, EGL_PBUFFER_BIT, EGL_SAMPLES, EGL_STENCIL_SIZE,
+    EGL_SURFACE_TYPE, EGL_TRUE, EGL_VENDOR, EGL_VERSION,
 };
 use crate::egl::{last_error, DisplayInfo};
 use crate::error::{Error, Result};
@@ -122,7 +122,10 @@ impl Display {
             unsafe {
                 ffi::eglTerminate(raw);
             }
-            return Err(Error::graphics("eglBindAPI(EGL_OPENGL_ES_API)", last_error()));
+            return Err(Error::graphics(
+                "eglBindAPI(EGL_OPENGL_ES_API)",
+                last_error(),
+            ));
         }
 
         let info = DisplayInfo {
@@ -148,7 +151,10 @@ impl Display {
 
     /// `true` when the display advertises an extension.
     pub fn has_extension(&self, name: &str) -> bool {
-        self.info.extensions.split_whitespace().any(|ext| ext == name)
+        self.info
+            .extensions
+            .split_whitespace()
+            .any(|ext| ext == name)
     }
 
     /// Chooses a config, walking the documented fallback chain:

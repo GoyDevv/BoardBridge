@@ -68,8 +68,14 @@ pub fn level() -> Level {
 }
 
 /// Cheap check so callers can skip building expensive messages.
+///
+/// Android's priorities count *upwards* with severity (`VERBOSE` is 2, `ERROR`
+/// is 6), so a message is written when it is at least as severe as the
+/// configured minimum. Getting this comparison backwards would silence the
+/// error lines exactly when the level is raised, which is the opposite of what
+/// `setLogLevel` is for.
 pub fn enabled(level: Level) -> bool {
-    (level as u8) <= LEVEL.load(Ordering::Relaxed)
+    (level as u8) >= LEVEL.load(Ordering::Relaxed)
 }
 
 /// Writes one already-formatted message. Prefer the [`bb_info!`] family.
@@ -173,7 +179,13 @@ mod tests {
 
     #[test]
     fn round_trips_through_u8() {
-        for level in [Level::Verbose, Level::Debug, Level::Info, Level::Warn, Level::Error] {
+        for level in [
+            Level::Verbose,
+            Level::Debug,
+            Level::Info,
+            Level::Warn,
+            Level::Error,
+        ] {
             assert_eq!(Level::from_u8(level as u8), level);
         }
     }

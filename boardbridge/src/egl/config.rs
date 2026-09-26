@@ -9,8 +9,9 @@
 //! runner (`cargo test`) rather than only on a device.
 
 use crate::egl::ffi::{
-    EGL_ALPHA_SIZE, EGL_BLUE_SIZE, EGL_DEPTH_SIZE, EGL_GREEN_SIZE, EGL_NONE, EGL_OPENGL_ES3_BIT,
-    EGL_PBUFFER_BIT, EGL_RED_SIZE, EGL_RENDERABLE_TYPE, EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGLint,
+    EGLint, EGL_ALPHA_SIZE, EGL_BLUE_SIZE, EGL_DEPTH_SIZE, EGL_GREEN_SIZE, EGL_NONE,
+    EGL_OPENGL_ES3_BIT, EGL_PBUFFER_BIT, EGL_RED_SIZE, EGL_RENDERABLE_TYPE, EGL_SURFACE_TYPE,
+    EGL_WINDOW_BIT,
 };
 
 /// What the bridge asks for when choosing an `EGLConfig`.
@@ -51,10 +52,7 @@ impl ConfigRequest {
 
     /// A request without alpha (the window is opaque anyway).
     pub const fn without_alpha(&self) -> ConfigRequest {
-        ConfigRequest {
-            alpha: 0,
-            ..*self
-        }
+        ConfigRequest { alpha: 0, ..*self }
     }
 
     /// Reduced depth/stencil: some mobile drivers expose no 24/8 config.

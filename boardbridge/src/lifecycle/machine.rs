@@ -263,10 +263,22 @@ impl Lifecycle {
                 _ => Outcome::Ignored("surface was already gone"),
             },
             LifecycleEvent::SurfaceUnbound => {
+                let was_bound = self.bound;
                 self.bound = false;
                 match self.state {
                     SurfaceState::SurfaceActive | SurfaceState::SurfaceDestroyPending => {
                         self.apply(SurfaceState::NoSurface)
+                    }
+                    // Rotation: the new window was already accepted
+                    // (`SurfaceCreated` moved us to SURFACE_PENDING) while the
+                    // previous binding is only now retired. Reporting these as
+                    // ignored would hide a real teardown from the caller; the
+                    // state stays SURFACE_PENDING because that window is what
+                    // the next bind will use. As in the STOPPING branch above,
+                    // no transition is counted: the state genuinely did not
+                    // change.
+                    SurfaceState::SurfacePending if was_bound => {
+                        Outcome::Applied(SurfaceState::SurfacePending)
                     }
                     _ => Outcome::Ignored("no bound surface to unbind"),
                 }
@@ -314,7 +326,10 @@ mod tests {
 
         assert!(machine.on(LifecycleEvent::SurfaceDestroyed).is_applied());
         assert_eq!(machine.state(), SurfaceState::SurfaceDestroyPending);
-        assert!(machine.is_bound(), "the binding is torn down asynchronously");
+        assert!(
+            machine.is_bound(),
+            "the binding is torn down asynchronously"
+        );
 
         assert!(machine.on(LifecycleEvent::SurfaceUnbound).is_applied());
         assert_eq!(machine.state(), SurfaceState::NoSurface);
@@ -337,7 +352,10 @@ mod tests {
         assert_eq!(machine.state(), SurfaceState::SurfaceDestroyPending);
 
         let outcome = machine.on(LifecycleEvent::SurfaceCreated);
-        assert!(outcome.is_applied(), "rotation must not be refused: {outcome:?}");
+        assert!(
+            outcome.is_applied(),
+            "rotation must not be refused: {outcome:?}"
+        );
         assert_eq!(machine.state(), SurfaceState::SurfacePending);
         assert_eq!(machine.surface_epoch(), 2);
 
@@ -406,14 +424,20 @@ mod tests {
     fn refuses_surplus_window_bindings_so_the_caller_releases_them() {
         let mut machine = Lifecycle::new();
         let outcome = machine.on(LifecycleEvent::SurfaceBound);
-        assert!(outcome.is_refused(), "a bind without a request must be refused");
+        assert!(
+            outcome.is_refused(),
+            "a bind without a request must be refused"
+        );
 
         run(
             &mut machine,
             &[LifecycleEvent::SurfaceCreated, LifecycleEvent::SurfaceBound],
         );
         let again = machine.on(LifecycleEvent::SurfaceBound);
-        assert!(again.is_refused(), "a second window must be released, not installed");
+        assert!(
+            again.is_refused(),
+            "a second window must be released, not installed"
+        );
     }
 
     #[test]
@@ -423,7 +447,11 @@ mod tests {
         machine.on(LifecycleEvent::SurfaceBindFailed);
         assert_eq!(machine.state(), SurfaceState::NoSurface);
         assert!(!machine.is_bound());
-        assert_eq!(machine.surface_epoch(), 1, "the epoch still identifies the surface");
+        assert_eq!(
+            machine.surface_epoch(),
+            1,
+            "the epoch still identifies the surface"
+        );
     }
 
     #[test]
@@ -449,7 +477,7 @@ mod tests {
         assert_eq!(machine.state(), SurfaceState::Stopping);
         assert!(!machine.is_bound());
 
-        assert_eq!(machine.state().is_shutdown(), true);
+        assert!(machine.state().is_shutdown());
         run(&mut machine, &[LifecycleEvent::Stopped]);
         assert_eq!(machine.state(), SurfaceState::Stopped);
         assert_eq!(machine.reported_state(), "STOPPED");

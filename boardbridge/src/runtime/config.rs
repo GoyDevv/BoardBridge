@@ -218,7 +218,10 @@ mod tests {
         assert_eq!(config.renderer, RendererKind::Auto);
         assert_eq!(config.loop_mode, LoopMode::Internal);
         assert_eq!(config.diagnostic_mode, DiagnosticMode::None);
-        assert_eq!(config.swap_interval, 0, "no vsync flag means immediate swap");
+        assert_eq!(
+            config.swap_interval, 0,
+            "no vsync flag means immediate swap"
+        );
         assert!(!config.preserve_context);
         assert!(!config.diagnostic_logs);
         assert_eq!(config.target_fps, 0, "negative frame caps are ignored");
@@ -255,7 +258,14 @@ mod tests {
     #[test]
     fn describe_mentions_every_dimension() {
         let text = RuntimeConfig::default().describe();
-        for needle in ["renderer=", "loop=", "diag=", "vsync=", "fps_cap=", "preserve="] {
+        for needle in [
+            "renderer=",
+            "loop=",
+            "diag=",
+            "vsync=",
+            "fps_cap=",
+            "preserve=",
+        ] {
             assert!(text.contains(needle), "missing {needle} in {text}");
         }
     }

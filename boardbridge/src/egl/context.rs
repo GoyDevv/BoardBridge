@@ -21,8 +21,8 @@
 use crate::bb_debug;
 use crate::bb_warn;
 use crate::egl::ffi::{
-    self, EGL_CONTEXT_CLIENT_VERSION, EGL_CONTEXT_MAJOR_VERSION, EGL_CONTEXT_MINOR_VERSION,
-    EGL_NO_CONTEXT, EGL_NO_SURFACE, EGL_NONE, EGL_TRUE, EGLint,
+    self, EGLint, EGL_CONTEXT_CLIENT_VERSION, EGL_CONTEXT_MAJOR_VERSION, EGL_CONTEXT_MINOR_VERSION,
+    EGL_NONE, EGL_NO_CONTEXT, EGL_NO_SURFACE, EGL_TRUE,
 };
 use crate::egl::surface::{PbufferSurface, WindowSurface};
 use crate::egl::{last_error, Config, Display};
@@ -60,7 +60,13 @@ impl ContextRequest {
 
     fn attributes(&self) -> [EGLint; 5] {
         if self.client_version_only {
-            [EGL_CONTEXT_CLIENT_VERSION, self.major, EGL_NONE, EGL_NONE, EGL_NONE]
+            [
+                EGL_CONTEXT_CLIENT_VERSION,
+                self.major,
+                EGL_NONE,
+                EGL_NONE,
+                EGL_NONE,
+            ]
         } else {
             [
                 EGL_CONTEXT_MAJOR_VERSION,
@@ -205,10 +211,7 @@ impl Context {
         if ok != EGL_TRUE {
             // Not fatal: a driver that refuses means "no vsync control", and the
             // loop still paces itself.
-            bb_warn!(
-                "eglSwapInterval({interval}) failed: 0x{:04x}",
-                last_error()
-            );
+            bb_warn!("eglSwapInterval({interval}) failed: 0x{:04x}", last_error());
         }
         Ok(())
     }
@@ -220,12 +223,7 @@ impl Drop for Context {
             return;
         }
         unsafe {
-            ffi::eglMakeCurrent(
-                self.display,
-                EGL_NO_SURFACE,
-                EGL_NO_SURFACE,
-                EGL_NO_CONTEXT,
-            );
+            ffi::eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         }
         let ok = unsafe { ffi::eglDestroyContext(self.display, self.raw) };
         if ok != EGL_TRUE {

@@ -334,7 +334,11 @@ impl GraphicsBackend for GlesBackend {
         let inner = self.lock();
         match (inner.display.as_ref(), inner.config.as_ref()) {
             (Some(display), Some(config)) => {
-                format!("{}; config {}", display.info().describe(), config.describe())
+                format!(
+                    "{}; config {}",
+                    display.info().describe(),
+                    config.describe()
+                )
             }
             (Some(display), None) => display.info().describe(),
             _ => "EGL display not initialized".to_string(),
@@ -368,17 +372,19 @@ impl GraphicsBackend for GlesBackend {
 
         // GL strings can only be read with a real surface current.
         let info = match pbuffer.as_ref() {
-            Some(pbuffer) => match context.make_current(&display, CurrentTarget::Pbuffer(pbuffer)) {
-                Ok(()) => {
-                    let info = GlesBackend::query_renderer_info(&context);
-                    let _ = context.make_current(&display, CurrentTarget::None);
-                    info
+            Some(pbuffer) => {
+                match context.make_current(&display, CurrentTarget::Pbuffer(pbuffer)) {
+                    Ok(()) => {
+                        let info = GlesBackend::query_renderer_info(&context);
+                        let _ = context.make_current(&display, CurrentTarget::None);
+                        info
+                    }
+                    Err(error) => {
+                        bb_warn!("could not make the new context current: {error}");
+                        None
+                    }
                 }
-                Err(error) => {
-                    bb_warn!("could not make the new context current: {error}");
-                    None
-                }
-            },
+            }
             None => None,
         };
 
@@ -482,17 +488,15 @@ impl GraphicsBackend for GlesBackend {
         };
         let target_surface = match inner.binding.as_ref() {
             Some(binding) if !inner.revoked => Some((binding.surface().raw(), false)),
-            _ => inner
-                .pbuffer
-                .as_ref()
-                .map(|pbuffer| (pbuffer.raw(), true)),
+            _ => inner.pbuffer.as_ref().map(|pbuffer| (pbuffer.raw(), true)),
         };
         let (surface_raw, is_pbuffer) = match target_surface {
             Some(target) => target,
             None => return Err(Error::NoSurface),
         };
 
-        let ok = unsafe { eglffi::eglMakeCurrent(display_raw, surface_raw, surface_raw, context_raw) };
+        let ok =
+            unsafe { eglffi::eglMakeCurrent(display_raw, surface_raw, surface_raw, context_raw) };
         if ok != eglffi::EGL_TRUE {
             return Err(Error::graphics("eglMakeCurrent", last_error()));
         }
@@ -643,7 +647,10 @@ impl GraphicsBackend for GlesBackend {
             // the new value up in `make_current`.
             let ok = unsafe { eglffi::eglSwapInterval(display.raw(), interval) };
             if ok != eglffi::EGL_TRUE {
-                bb_debug!("eglSwapInterval({interval}) refused: 0x{:04x}", last_error());
+                bb_debug!(
+                    "eglSwapInterval({interval}) refused: 0x{:04x}",
+                    last_error()
+                );
             }
         }
         Ok(())

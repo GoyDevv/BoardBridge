@@ -119,11 +119,17 @@ mod tests {
         let all = [
             Error::NotInitialized,
             Error::AlreadyInitialized,
-            Error::InvalidState { state: "NO_SURFACE", detail: "test" },
+            Error::InvalidState {
+                state: "NO_SURFACE",
+                detail: "test",
+            },
             Error::NoSurface,
             Error::SurfaceBusy,
             Error::SurfaceRevoked,
-            Error::Graphics { op: "eglCreateContext", code: 0x3003 },
+            Error::Graphics {
+                op: "eglCreateContext",
+                code: 0x3003,
+            },
             Error::BackendUnavailable("SDL3"),
             Error::InvalidArgument("renderer"),
             Error::Message("boom".to_string()),
