@@ -94,7 +94,11 @@ jobs:
       - name: Point cargo-ndk at the NDK
         run: |
           SDK_ROOT="${ANDROID_SDK_ROOT:-$(dirname "$(dirname "$(command -v sdkmanager)")")}"
+          # Both variables are set on purpose: the runner image ships another
+          # NDK and exports ANDROID_NDK_ROOT for it, which makes cargo-ndk warn
+          # about a mismatch and leaves the choice of clang ambiguous.
           echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           ls "$SDK_ROOT/ndk"
 
       - name: Build debug APK (builds the Rust core for every ABI)

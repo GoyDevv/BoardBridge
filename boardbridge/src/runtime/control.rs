@@ -956,7 +956,14 @@ fn bridge_thread_main(shared: Arc<Shared>) {
             // ---- 3. Nothing to draw: sleep until something changes. ----
             let state = shared.lock();
             if state.commands.is_empty() && !state.stopping {
-                let _ = shared.signal.wait(state);
+                // `Condvar::wait` hands the guard back when it wakes. Naming the
+                // binding keeps it alive for the whole sleep and satisfies
+                // `let_underscore_lock`, which is deny-by-default; poisoning is
+                // recovered exactly as `wait_for` does it.
+                let _guard = shared
+                    .signal
+                    .wait(state)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
             }
         }
     }

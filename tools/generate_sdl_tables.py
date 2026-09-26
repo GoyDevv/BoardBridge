@@ -22,6 +22,12 @@
 #   python3 tools/generate_sdl_tables.py --check          # verify committed file
 #   python3 tools/generate_sdl_tables.py --cache /tmp/sdl # reuse downloaded files
 #
+# Both upstreams track `main`, and AOSP's git server answers `503 Service
+# Unavailable` often enough that a single attempt would turn CI red for reasons
+# that have nothing to do with this repository. Downloads are therefore retried
+# with a backoff, and when the network is still unreachable `--check` reports
+# what it could not compare and skips instead of failing.
+#
 # Requires only the Python standard library.
 
 import argparse
@@ -30,6 +36,8 @@ import hashlib
 import os
 import re
 import sys
+import time
+import urllib.error
 import urllib.request
 
 SDL_REF = "main"
@@ -49,13 +57,45 @@ SOURCES = {
 
 OUTPUT = os.path.join("boardbridge", "src", "input", "sdl_tables.rs")
 
+# How long to wait before each retry, so the number of attempts is
+# `len(FETCH_DELAYS_SECONDS) + 1`.
+FETCH_DELAYS_SECONDS = (1.0, 4.0, 10.0)
+
+
+class FetchError(Exception):
+    """An upstream header could not be downloaded."""
+
+
+def download(url):
+    """Downloads `url`, retrying only the failures that are worth retrying.
+
+    HTTP 5xx and 429 (and plain network errors) get another chance after a
+    backoff. Anything else — a 404, say — is reported immediately: retrying a
+    missing file would only hide an upstream path that moved.
+    """
+    last = None
+    for attempt in range(len(FETCH_DELAYS_SECONDS) + 1):
+        if attempt:
+            delay = FETCH_DELAYS_SECONDS[attempt - 1]
+            print("  retrying in %.0fs" % delay, file=sys.stderr)
+            time.sleep(delay)
+        try:
+            return urllib.request.urlopen(url, timeout=120).read()
+        except urllib.error.HTTPError as error:
+            if error.code < 500 and error.code != 429:
+                raise FetchError("%s: HTTP %s" % (url, error.code)) from error
+            last = error
+        except (urllib.error.URLError, OSError) as error:
+            last = error
+    raise FetchError("%s: %s" % (url, last)) from last
+
 
 def fetch(cache_dir, name, url):
     os.makedirs(cache_dir, exist_ok=True)
     path = os.path.join(cache_dir, name)
     if not os.path.exists(path):
         print("  fetching %s" % name, file=sys.stderr)
-        raw = urllib.request.urlopen(url, timeout=120).read()
+        raw = download(url)
         if url.endswith("format=TEXT"):
             raw = base64.b64decode(raw)
         with open(path, "wb") as handle:
@@ -364,8 +404,27 @@ def main():
 
     files = {}
     hashes = {}
-    for name, url in SOURCES.items():
-        files[name], hashes[name] = fetch(args.cache, name, url)
+    try:
+        for name, url in SOURCES.items():
+            files[name], hashes[name] = fetch(args.cache, name, url)
+    except FetchError as error:
+        # Without upstream there is nothing to compare *against*. Saying so
+        # loudly (GitHub renders `::warning::` as an annotation on the step) is
+        # more honest than a red build that blames this repository for an
+        # upstream outage — and more useful than passing silently.
+        if args.check:
+            print("::warning::%s" % error)
+            print(
+                "  skipping the freshness check: %s" % error,
+                file=sys.stderr,
+            )
+            return 0
+        print("error: %s" % error, file=sys.stderr)
+        print(
+            "  nothing was written; the committed tables are unchanged",
+            file=sys.stderr,
+        )
+        return 2
 
     scancodes = parse_sdl_scancodes(files["SDL_scancode.h"])
     keymap = parse_sdl_android_keymap(files["SDL_androidkeyboard.c"])
