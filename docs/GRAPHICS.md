@@ -54,6 +54,53 @@ VAOs alive across rotation and backgrounding (`preserve_context = true`, the
 default). Reduced-depth/stencil variants and an opaque (no-alpha) variant exist
 for drivers that expose no matching config.
 
+### EGL lifetime, and what happens when someone else terminates the display
+
+The default EGL display is **process-wide**. libEGL keeps every `EGLSurface` and
+`EGLContext` made from it in a per-display object table, and any other EGL user in
+the process (the activity's own HWUI render thread, a library, a game's own GL
+setup) may call `eglTerminate` on that display. When that happens our handles stay
+non-null but stop resolving: every later call on them fails with `EGL_BAD_SURFACE`
+(`0x300D`), including `eglDestroySurface`. This is the failure that produced a
+black screen with `eglMakeCurrent failed (code 0x300d)` repeated once per frame.
+
+Two rules follow, and both are implemented:
+
+1. **EGL is created late.** Nothing in `GlesBackend::initialize` touches EGL: the
+display, config, context and offscreen surface are created by `ensure_display` on
+the **first window bind**, so the display, its context and the surface that is
+made current are only ever a few instructions apart. (The first Rust rewrite
+created EGL in `createRuntime` — inside `Activity.onCreate`, a second or more
+before the `SurfaceView` had a surface — which is exactly the window in which the
+handles could be invalidated.) The former C++ core created EGL inside the render
+thread that starts on `surfaceCreated`; this restores that ordering.
+
+2. **A failed `eglMakeCurrent` is a state problem, not a frame problem.**
+`GlesBackend::make_current` treats it as "the display is gone" and recovers in
+place, bounded by `MAX_EGL_REBUILDS` (3) per binding generation:
+
+   * **cheap path** — recreate only the `EGLSurface` from the `ANativeWindow` the
+     binding still owns, keeping the display and the context. libEGL validates the
+     *context* before the surface and reports `EGL_BAD_CONTEXT` when that is the
+     missing object, so `EGL_BAD_SURFACE` means the context survived: keeping it is
+     what keeps the game's textures, shaders and VAOs alive, which is the promise
+     `preserve_context` makes;
+   * **full rebuild** — otherwise forget every handle *without* calling back into
+     EGL (`disarm`, which prevents use-after-free inside libEGL) and build a fresh
+     display, context and surface.
+
+   `WindowSurface`/`PbufferSurface`/`Context`/`Display` all expose `disarm()` for
+   this; the retry happens inside the same `make_current` call, so the frame is
+   drawn rather than dropped. If the rebuild also fails the binding is revoked, the
+   lifecycle machine is moved to `NO_SURFACE` (the game is told through the input
+   queue), and the render loop parks on its command queue instead of spinning — a
+   new `surfaceCreated` (rotation, relaunch) starts a clean generation.
+
+A failing frame is also paced (`FAILED_FRAME_FPS`) and logged at most once per
+`ATTACH_LOG_INTERVAL` (5 s): an uncapped loop once emitted 129 000 warnings in
+19 seconds, which filled logcat's ring buffer and pushed every earlier diagnostic
+line — including the evidence for the failure itself — out of it.
+
 ### Window binding and the revoke/drain fence
 
 `WindowBinding` owns, in declaration order: the `EGLSurface`, then the

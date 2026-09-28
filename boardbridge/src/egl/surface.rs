@@ -72,6 +72,16 @@ impl WindowSurface {
         self.raw
     }
 
+    /// Forgets the handle without calling `eglDestroySurface`.
+    ///
+    /// Used when the display this surface was made from has been terminated by
+    /// another EGL user in the process (see [`Display::disarm`]): the handle is
+    /// still non-null, but EGL no longer recognizes it, so destroying it is at
+    /// best a spurious error and inside libEGL a use-after-free.
+    pub fn disarm(&mut self) {
+        self.raw = ffi::EGL_NO_SURFACE;
+    }
+
     /// Size reported by EGL at creation time. Use [`WindowSurface::refresh_size`]
     /// after a resize to pick up a new one.
     pub fn size(&self) -> SurfaceSize {
@@ -185,6 +195,12 @@ impl PbufferSurface {
     pub fn size(&self) -> SurfaceSize {
         self.size
     }
+
+    /// Forgets the handle without calling `eglDestroySurface` (see
+    /// [`WindowSurface::disarm`]).
+    pub fn disarm(&mut self) {
+        self.raw = ffi::EGL_NO_SURFACE;
+    }
 }
 
 impl Drop for PbufferSurface {
@@ -256,6 +272,20 @@ impl WindowBinding {
     /// The EGL surface.
     pub fn surface(&self) -> &WindowSurface {
         &self.surface
+    }
+
+    /// Rebuilds the `EGLSurface` from the window this binding already owns.
+    ///
+    /// Needed when the EGL display was re-initialized: the old `EGLSurface`
+    /// belonged to the terminated display and cannot be used again, but the
+    /// `ANativeWindow` is still ours. The old surface is forgotten (never handed
+    /// back to EGL) and the new one is created before the old is dropped, so the
+    /// "surface destroyed before its window is released" invariant holds.
+    pub fn recreate_surface(&mut self, display: &Display, config: &Config) -> Result<()> {
+        let fresh = WindowSurface::create(display, config, &self.window)?;
+        let mut stale = core::mem::replace(&mut self.surface, fresh);
+        stale.disarm();
+        Ok(())
     }
 
     /// Mutable access, for resize queries.

@@ -92,7 +92,16 @@ cd boardbridge
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all --check
+cd .. && sh tools/host_check_android.sh
 ```
+
+A plain host build skips everything behind `cfg(target_os = "android")` — the
+GLES backend, the EGL display/context/surface code and the JNI-adjacent modules
+— so a mistake in them would first appear when the APK job cross-compiles.
+`tools/host_check_android.sh` closes that gap cheaply: it copies the crate to a
+scratch directory, removes the `cfg` gates and typechecks *and lints* the Android
+half against the host target (nothing is linked, so no NDK is needed). The real
+Android build is still the `apk` job.
 
 ### Why CI builds this
 

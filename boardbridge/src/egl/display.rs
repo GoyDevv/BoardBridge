@@ -144,6 +144,21 @@ impl Display {
         self.raw
     }
 
+    /// Forgets the handle *without* calling `eglTerminate`.
+    ///
+    /// The default EGL display is process-wide and its objects (`EGLSurface`,
+    /// `EGLContext`) live in an object table owned by libEGL. Any other EGL user
+    /// in the same process calling `eglTerminate` on it empties that table while
+    /// the display itself stays "ready", so our handles stay non-null but become
+    /// unresolvable: every later call on them fails with `EGL_BAD_SURFACE`.
+    /// Once that has happened the handle must not be passed back to EGL at all —
+    /// at best it produces a spurious error, inside libEGL it is a
+    /// use-after-free. `disarm` is how a handle is dropped in that state; see
+    /// [`crate::graphics::gles`].
+    pub fn disarm(&mut self) {
+        self.raw = ffi::EGL_NO_DISPLAY;
+    }
+
     /// Version/vendor/extension information gathered at initialization.
     pub fn info(&self) -> &DisplayInfo {
         &self.info

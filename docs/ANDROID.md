@@ -87,6 +87,27 @@ package and object name. Renaming either side breaks the link with a
 `NoSuchMethodError`/`UnsatisfiedLinkError` at first call — the ABI version in
 `getStatus()` exists to make that obvious.
 
+## Checking the Android-only code without an NDK
+
+`cargo test` / `cargo clippy` on a host compile only the portable modules: the
+GLES backend, the EGL display/context/surface code, `android/*`, `platform/*` and
+`render/diagnostics.rs` all sit behind `cfg(target_os = "android")` and are never
+built, so nothing there is even parsed. Mistaking an `impl` block, forgetting an
+import or a wrong EGL call therefore used to surface only when the APK job
+cross-compiled — a full CI round trip for a one-line mistake.
+
+```bash
+sh tools/host_check_android.sh          # HOST_CHECK_DIR=/tmp/... to relocate
+```
+
+The script copies `boardbridge/` to a scratch directory, strips every
+`cfg(target_os = "android")` gate (and neutralises the `cfg(not(...))` host
+halves so they cannot collide), drops the `jni` module — its crate needs a C
+compiler of its own — and runs `cargo check` and `cargo clippy -D warnings`
+there. Nothing is linked and no NDK symbol is resolved: this catches type and lint
+errors in Android-only code, **not** ABI mistakes. CI runs it in the `rust` job,
+and the cross-compiled build remains the authority.
+
 ## Verifying on a device
 
 ```bash

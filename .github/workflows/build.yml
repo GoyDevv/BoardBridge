@@ -14,8 +14,12 @@ env:
 
 jobs:
   # The Rust core: everything that can be checked on a host runner. The Android
-  # target is cross-compiled in the `apk` job, because the JNI module is
-  # cfg(target_os = "android") and is therefore not even compiled by cargo test.
+  # target itself is cross-compiled in the `apk` job; the Android-gated modules
+  # (gles, egl display/context/surface, android/*, diagnostics) are additionally
+  # typechecked and linted here with `tools/host_check_android.sh`, which strips
+  # the `cfg(target_os = "android")` gates in a scratch copy of the crate. Without
+  # it a mistake inside one of them (a method in the wrong `impl`, a missing
+  # import) is invisible until the APK job fails.
   rust:
     name: Rust core (fmt, clippy, tests)
     runs-on: ubuntu-latest
@@ -49,6 +53,9 @@ jobs:
 
       - name: Generated SDL3/AOSP tables are up to date
         run: python3 tools/generate_sdl_tables.py --check
+
+      - name: Android-only modules typecheck and lint on the host
+        run: sh tools/host_check_android.sh
 
   apk:
     name: Android APK (Rust .so + Kotlin shell)

@@ -87,6 +87,10 @@ jobs:
             # Suppress the immersive-mode confirmation overlay, which otherwise
             # swallows the first tap.
             adb shell settings put secure immersive_mode_confirmations confirmed
+            # A bigger ring buffer: the framed evidence below is read once at the
+            # end of the run, and the default buffer is small enough that a
+            # chatty failing app can push its own startup lines out of it.
+            adb logcat -G 16M || true
             adb logcat -c
             # applicationId + activity from app/build.gradle.kts / AndroidManifest.xml
             adb shell am start -n com.boardbridge.bridge/.MainActivity
@@ -123,41 +127,51 @@ jobs:
 
             fail() { echo "ERROR: $1"; exit 1; }
 
+            # Each check is a single line on purpose. A trailing backslash here
+            # is a shell continuation that the emulator runner's script handling
+            # does not always preserve, and the failure that produced was a
+            # `grep: \: No such file or directory` that made the assertions look
+            # as if they had run.
+            [ -s artifacts/logcat-boardbridge.txt ] || fail "logcat-boardbridge.txt is empty or missing"
+
             # 1. The EGL context exists and the GL strings crossed JNI.
-            grep -q "GL_VERSION=" artifacts/logcat-boardbridge.txt \
-              || fail "no GL_VENDOR/GL_RENDERER/GL_VERSION line: the context never came up"
+            grep -q "GL_VERSION=" artifacts/logcat-boardbridge.txt || fail "no GL_VENDOR/GL_RENDERER/GL_VERSION line: the context never came up"
 
             # 2. The surface was bound through the lifecycle machine and EGL.
-            grep -q "First frame rendered" artifacts/logcat-boardbridge.txt \
-              || fail "no 'First frame rendered' line: the surface/EGL path did not run"
+            grep -q "First frame rendered" artifacts/logcat-boardbridge.txt || fail "no 'First frame rendered' line: the surface/EGL path did not run"
 
             # 3. The internal loop kept drawing and read the centre pixel back
             #    (the clear colour is (0, 158, 166); allow 1 LSB of rounding).
-            grep -Eq "frames=[0-9]+ fps=[0-9.]+ mode=SOLID" artifacts/logcat-boardbridge.txt \
-              || fail "no frame-statistics line: the render loop did not run"
-            grep -Eq "center_pixel_RGBA=\([0-9]+,15[0-9],16[0-9],25[0-5]\)" artifacts/logcat-boardbridge.txt \
-              || fail "centre pixel is not the diagnostic solid colour"
+            grep -Eq "frames=[0-9]+ fps=[0-9.]+ mode=SOLID" artifacts/logcat-boardbridge.txt || fail "no frame-statistics line: the render loop did not run"
+            grep -Eq "center_pixel_RGBA=\([0-9]+,15[0-9],16[0-9],25[0-5]\)" artifacts/logcat-boardbridge.txt || fail "centre pixel is not the diagnostic solid colour"
 
-            # 4. Input really was translated to SDL: KEYCODE_A must reach the
+            # 4. The EGL surface was never abandoned or left unusable. A
+            #    non-null EGLSurface that EGL no longer resolves (EGL_BAD_SURFACE,
+            #    0x300d) is the failure this test exists to catch, and the bridge
+            #    recovers from it by rebuilding the surface from the window it
+            #    still owns; only an *unrecovered* failure is a test failure.
+            if grep -q "is unusable and was abandoned" artifacts/logcat-boardbridge.txt; then
+              fail "an EGL surface was abandoned: bind/makeCurrent could not be recovered"
+            fi
+            if grep -q "still cannot make the context current" artifacts/logcat-boardbridge.txt; then
+              fail "repeated eglMakeCurrent failures: the context never became usable"
+            fi
+
+            # 5. Input really was translated to SDL: KEYCODE_A must reach the
             #    queue as scancode A (29 -> SDL_SCANCODE_A), not as a raw Android
             #    keycode passed through.
-            grep -q "key DOWN code=29 scancode=A" artifacts/logcat-boardbridge.txt \
-              || fail "KEYCODE_A did not arrive as SDL scancode A"
-            grep -q "touch DOWN at" artifacts/logcat-boardbridge.txt \
-              || fail "no touch event reached the diagnostic renderer"
+            grep -q "key DOWN code=29 scancode=A" artifacts/logcat-boardbridge.txt || fail "KEYCODE_A did not arrive as SDL scancode A"
+            grep -q "touch DOWN at" artifacts/logcat-boardbridge.txt || fail "no touch event reached the diagnostic renderer"
 
-            # 5. The surface was torn down and handed over again: HOME then
+            # 6. The surface was torn down and handed over again: HOME then
             #    relaunch must produce a second, independent binding.
             BINDINGS=$(grep -c "surface created:" artifacts/logcat-boardbridge.txt || true)
             echo "surface bindings: $BINDINGS"
-            [ "$BINDINGS" -ge 2 ] \
-              || fail "expected at least 2 surface bindings after HOME + relaunch, saw $BINDINGS"
+            [ "$BINDINGS" -ge 2 ] || fail "expected at least 2 surface bindings after HOME + relaunch, saw $BINDINGS"
 
-            # 6. The runtime was torn down cleanly.
-            grep -q "runtime created" artifacts/logcat-boardbridge.txt \
-              || fail "no 'runtime created' line: createRuntime never ran"
-            grep -q "runtime stopped" artifacts/logcat-boardbridge.txt \
-              || fail "the runtime was never stopped: onDestroy/back handling is wrong"
+            # 7. The runtime was torn down cleanly.
+            grep -q "runtime created" artifacts/logcat-boardbridge.txt || fail "no 'runtime created' line: createRuntime never ran"
+            grep -q "runtime stopped" artifacts/logcat-boardbridge.txt || fail "the runtime was never stopped: onDestroy/back handling is wrong"
 
             echo "All render-test assertions passed."
 

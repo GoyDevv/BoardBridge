@@ -51,7 +51,7 @@ an aarch64 Android device where the Android SDK's x86-64 build tools cannot run:
 
 | Workflow | Checks |
 |---|---|
-| `.github/workflows/build.yml` (`rust` job) | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, generated-table freshness |
+| `.github/workflows/build.yml` (`rust` job) | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, generated-table freshness, and `tools/host_check_android.sh` (the `cfg(target_os = "android")` modules typechecked and linted on the host) |
 | `.github/workflows/build.yml` (`apk` job) | cross-compiles the Rust core for all three ABIs, builds the APK, verifies the `.so` exists, is 16 KB page aligned, and exports the `Java_com_boardbridge_bridge_NativeBridge_*` symbols, then uploads the APK |
 | `.github/workflows/render-test.yml` | boots an emulator, installs the APK, and asserts on logcat: GL strings present, `First frame rendered`, frame statistics with the SOLID centre pixel, `KEYCODE_A` → `SDL_SCANCODE_A`, a touch event reaching the diagnostic renderer, at least two surface bindings across HOME + relaunch, and a clean `runtime stopped` |
 

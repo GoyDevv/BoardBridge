@@ -68,6 +68,18 @@ const BRIDGE_THREAD_NAME: &str = "BoardBridge";
 /// the loop.
 const MAX_INPUT_PER_FRAME: usize = 256;
 
+/// Minimum interval between "cannot make the context current" log lines.
+///
+/// The first failure is logged at error level and the rest at most once per
+/// interval: an uncapped loop once emitted 129 000 warnings in 19 seconds, which
+/// filled logcat's ring buffer and pushed every earlier diagnostic line — the
+/// evidence for the failure itself — out of it.
+const ATTACH_LOG_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Frame-rate floor applied while frames are failing. Without it a surface the
+/// driver rejects spins the loop as fast as the CPU allows, for nothing.
+const FAILED_FRAME_FPS: u32 = 30;
+
 /// One instruction for the bridge thread.
 struct Command {
     /// Monotonic id; the issuer waits for `completed >= id`.
@@ -827,6 +839,8 @@ fn bridge_thread_main(shared: Arc<Shared>) {
     let mut renderer = DiagnosticRenderer::new(config.diagnostic_mode);
     let mut events: Vec<InputEvent> = Vec::with_capacity(MAX_INPUT_PER_FRAME);
     let mut last_frame: Option<Instant> = None;
+    let mut attach_failures: u64 = 0;
+    let mut last_attach_log: Option<Instant> = None;
     let mut stopping = false;
 
     while !stopping {
@@ -925,8 +939,9 @@ fn bridge_thread_main(shared: Arc<Shared>) {
             // Cached size: refreshed only when a Resize command arrives, so the
             // frame path stays free of EGL queries.
             let size = backend.window_size();
-            match backend.make_current(ThreadRole::Bridge) {
+            let attached = match backend.make_current(ThreadRole::Bridge) {
                 Ok(()) => {
+                    attach_failures = 0;
                     renderer.draw(size);
                     if let Some(line) = renderer.take_first_frame_log(size) {
                         bb_info!("{line}");
@@ -946,12 +961,26 @@ fn bridge_thread_main(shared: Arc<Shared>) {
                         }
                         publish_stats(&shared, &renderer, size);
                     }
+                    true
                 }
                 Err(error) => {
-                    bb_warn!("could not make the context current on the bridge thread: {error}");
+                    report_attach_failure(
+                        &shared,
+                        &backend,
+                        &error,
+                        &mut attach_failures,
+                        &mut last_attach_log,
+                    );
+                    false
                 }
-            }
-            pace(&shared, &mut last_frame, target_fps);
+            };
+            // A failing frame is paced too (never faster than `FAILED_FRAME_FPS`).
+            let pace_fps = if attached {
+                target_fps
+            } else {
+                target_fps.max(FAILED_FRAME_FPS)
+            };
+            pace(&shared, &mut last_frame, pace_fps);
         } else {
             // ---- 3. Nothing to draw: sleep until something changes. ----
             let state = shared.lock();
@@ -1009,6 +1038,9 @@ fn handle_attach(
         Ok(actual) => {
             let outcome = shared.on_lifecycle(LifecycleEvent::SurfaceBound);
             if outcome.is_applied() {
+                // EGL is created with the first bind, so this is the first point
+                // at which the EGL/display detail is meaningful.
+                publish_backend_detail(shared, backend.describe());
                 shared.input.remove_lifecycle_notices();
                 shared.push_lifecycle_notice(LifecycleNotice::SurfaceAvailable {
                     width: actual.width,
@@ -1037,6 +1069,49 @@ fn handle_attach(
             shared.record_error(&error);
             bb_error!("failed to bind the surface: {error}");
         }
+    }
+}
+
+/// Reports a failed attach without flooding logcat, and keeps the lifecycle
+/// machine honest when the backend had to abandon the surface.
+///
+/// The first failure of a run is an error line; later ones are rate-limited to
+/// one per [`ATTACH_LOG_INTERVAL`]. When the backend no longer has a window at
+/// all it revoked the binding, so the machine is moved to `NO_SURFACE` and the
+/// game is told through the input queue (the same notice `surfaceDestroyed`
+/// produces) instead of the bridge claiming `SURFACE_ACTIVE` forever.
+fn report_attach_failure(
+    shared: &Shared,
+    backend: &Arc<dyn GraphicsBackend>,
+    error: &Error,
+    failures: &mut u64,
+    last_log: &mut Option<Instant>,
+) {
+    *failures += 1;
+    shared.record_error(error);
+
+    let now = Instant::now();
+    // Spelled as a `match` on purpose: `map_or(true, …)` is what clippy would
+    // rewrite, and `is_none_or` needs a newer Rust than this crate's MSRV.
+    let due = match *last_log {
+        Some(last) => now.duration_since(last) >= ATTACH_LOG_INTERVAL,
+        None => true,
+    };
+    if due {
+        if *failures == 1 {
+            bb_error!("could not make the context current on the bridge thread: {error}");
+        } else {
+            bb_warn!("still cannot make the context current ({failures} failed frames): {error}");
+        }
+        *last_log = Some(now);
+    }
+
+    if !backend.has_window() {
+        shared.on_lifecycle(LifecycleEvent::SurfaceUnbound);
+        shared.input.clear();
+        shared.push_lifecycle_notice(LifecycleNotice::SurfaceRevoked {
+            timestamp_ms: now_ms(),
+        });
     }
 }
 

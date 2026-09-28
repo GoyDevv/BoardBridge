@@ -169,6 +169,15 @@ impl Context {
         self.raw
     }
 
+    /// Forgets the handle without calling `eglDestroyContext`.
+    ///
+    /// Used only when the display that owns this context has been terminated by
+    /// someone else in the process (see [`Display::disarm`]); touching the
+    /// handle after that is a use-after-free inside libEGL.
+    pub fn disarm(&mut self) {
+        self.raw = EGL_NO_CONTEXT;
+    }
+
     /// Makes this context current on the calling thread against `target`.
     ///
     /// Note the subject: *the calling thread*. The bridge relies on this being

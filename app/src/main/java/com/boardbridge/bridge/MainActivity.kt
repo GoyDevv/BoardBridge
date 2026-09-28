@@ -123,7 +123,14 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val TAG = "BoardBridge"
-        const val MAX_RENDERER_INFO_ATTEMPTS = 20
+
+        /**
+         * 60 × 150 ms = 9 s. EGL is created on the first surface bind rather
+         * than at [BridgeRuntime.start], so on a slow device the GL strings can
+         * legitimately appear seconds after `onCreate`; the old 3 s window gave
+         * up too early and logged a misleading warning.
+         */
+        const val MAX_RENDERER_INFO_ATTEMPTS = 60
         const val POLL_INTERVAL_MS = 150L
     }
 }

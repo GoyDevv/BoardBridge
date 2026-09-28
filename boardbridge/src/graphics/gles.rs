@@ -21,6 +21,26 @@
 //! 4. **No lock held across the GPU.** `eglSwapBuffers` — the only call that can
 //!    wait for vsync — runs with the backend lock released; an
 //!    [`InFlight`] guard keeps the counters correct even if the call unwinds.
+//! 5. **EGL state that can be invalidated is expected to be.** The default EGL
+//!    display is *process-wide*: any other EGL user in the process calling
+//!    `eglTerminate` on it empties libEGL's object table, after which every
+//!    `EGLSurface`/`EGLContext` we already hold is non-null but unresolvable
+//!    (every use fails with `EGL_BAD_SURFACE`). Two things follow, and both are
+//!    deliberate: EGL is created *late* — on the first bind, never at
+//!    `initialize` — so a display, its context and the window surface are only
+//!    ever a few instructions apart; and a failed `eglMakeCurrent` is treated as
+//!    "the display is gone", not as a per-frame error: the stale handles are
+//!    forgotten (never handed back to EGL), EGL is rebuilt, and the surface is
+//!    recreated from the `ANativeWindow` we still own.
+//!
+//! # Why late creation, concretely
+//!
+//! `createRuntime` runs in `Activity.onCreate`, seconds before the `SurfaceView`
+//! has a surface. Creating the display there and binding a window later leaves a
+//! window in which the activity's own HWUI render thread can tear its EGL state
+//! down and take our display's objects with it. The former C++ core created EGL
+//! inside the render thread that starts on `surfaceCreated`, which is why it
+//! never saw this — and why the same sequence is restored here.
 //!
 //! # Threading
 //!
@@ -42,6 +62,7 @@ use std::time::{Duration, Instant};
 
 use crate::android::surface::{OwnedNativeWindow, SurfaceSize};
 use crate::bb_debug;
+use crate::bb_error;
 use crate::bb_info;
 use crate::bb_warn;
 use crate::egl::ffi as eglffi;
@@ -53,6 +74,14 @@ use crate::graphics::{
     BackendStatus, GraphicsBackend, GraphicsConfig, GraphicsStats, RendererInfo, RendererKind,
     ThreadRole,
 };
+
+/// How many times one binding generation may rebuild EGL after a failed
+/// `eglMakeCurrent` before the surface is abandoned. Bounded on purpose: a
+/// rebuild is cheap enough to try a few times, but a display that keeps being
+/// terminated under us is not something to fight in a loop — the binding is
+/// revoked instead, the render loop parks on its command queue, and the next
+/// `surfaceCreated` (a rotation, a relaunch) starts from a clean generation.
+const MAX_EGL_REBUILDS: u64 = 3;
 
 /// OpenGL ES 3.x backend.
 pub struct GlesBackend {
@@ -81,6 +110,8 @@ struct GlesInner {
     config: Option<Config>,
     info: Option<RendererInfo>,
     generation: u64,
+    /// EGL rebuilds already attempted for the current generation.
+    recoveries: u64,
     revoked: bool,
     owner: Option<ThreadId>,
     owner_role: Option<ThreadRole>,
@@ -152,6 +183,7 @@ impl GlesBackend {
                 config: None,
                 info: None,
                 generation: 0,
+                recoveries: 0,
                 revoked: true,
                 owner: None,
                 owner_role: None,
@@ -315,6 +347,236 @@ impl GlesBackend {
             best_available,
         })
     }
+
+    /// Creates the EGL display, config, context and offscreen surface if they do
+    /// not exist (or were forgotten after an invalidation).
+    ///
+    /// Cheap and idempotent after the first call, which is what lets
+    /// `bind_window` and `make_current` call it unconditionally. Deliberately
+    /// *not* called from [`GraphicsBackend::initialize`]: see the module docs.
+    fn ensure_display(&self, inner: &mut GlesInner) -> Result<()> {
+        if inner.display.is_some() && inner.config.is_some() && inner.context.is_some() {
+            return Ok(());
+        }
+
+        let display = Display::initialize()?;
+        bb_info!("{}", display.info().describe());
+
+        let config = display.choose_config(&self.config.config_request)?;
+        bb_info!("EGL config: {}", config.describe());
+
+        let context = Context::create_best(&display, &config)?;
+
+        // A 1x1 pbuffer costs nothing and buys the surface-loss path: the game's
+        // context stays current (and its GL objects stay valid) while Android
+        // has taken the window away. A driver that cannot back one is not fatal.
+        let pbuffer = match PbufferSurface::create(&display, &config, SurfaceSize::new(1, 1)) {
+            Ok(pbuffer) => Some(pbuffer),
+            Err(error) => {
+                bb_debug!("no pbuffer surface: {error}");
+                None
+            }
+        };
+
+        inner.display = Some(display);
+        inner.config = Some(config);
+        inner.context = Some(context);
+        inner.pbuffer = pbuffer;
+        // The GL strings belong to the context and are read on the first real
+        // attach (`attach_current`), when a window surface is current.
+        inner.info = None;
+        Ok(())
+    }
+
+    /// Forgets every EGL handle without calling into EGL, in teardown order.
+    ///
+    /// This is the "the display is gone" path: the handles are non-null but no
+    /// longer resolvable, so `eglDestroySurface`/`eglDestroyContext`/
+    /// `eglTerminate` must not be called on them. Disarming drops each value as
+    /// a no-op, and the binding keeps its `ANativeWindow`, which is ours and
+    /// still valid.
+    fn forget_display(&self, inner: &mut GlesInner) {
+        if let Some(binding) = inner.binding.as_mut() {
+            binding.surface_mut().disarm();
+        }
+        if let Some(mut pbuffer) = inner.pbuffer.take() {
+            pbuffer.disarm();
+        }
+        if let Some(mut context) = inner.context.take() {
+            context.disarm();
+        }
+        inner.config = None;
+        if let Some(mut display) = inner.display.take() {
+            display.disarm();
+        }
+        inner.owner = None;
+        inner.owner_role = None;
+        inner.info = None;
+    }
+
+    /// Rebuilds EGL after a failed `eglMakeCurrent`, recreating the window
+    /// surface from the `ANativeWindow` the binding still owns.
+    fn rebuild_display(&self, inner: &mut GlesInner) -> Result<()> {
+        self.forget_display(inner);
+        self.ensure_display(inner)?;
+        if let (Some(binding), Some(display), Some(config)) = (
+            inner.binding.as_mut(),
+            inner.display.as_ref(),
+            inner.config.as_ref(),
+        ) {
+            binding.recreate_surface(display, config)?;
+        }
+        inner.revoked = false;
+        Ok(())
+    }
+
+    /// Makes the context current on `thread` against the bound window (or, with
+    /// no window, against the offscreen surface).
+    ///
+    /// Assumes `inner` is locked and [`GlesBackend::ensure_display`] has run.
+    fn attach_current(
+        &self,
+        inner: &mut GlesInner,
+        thread: ThreadId,
+        role: ThreadRole,
+    ) -> Result<()> {
+        // Extract everything the EGL call needs as plain values, so no borrow of
+        // `inner` is alive across the EGL call.
+        let (display_raw, context_raw) = match (inner.display.as_ref(), inner.context.as_ref()) {
+            (Some(display), Some(context)) => (display.raw(), context.raw()),
+            _ => return Err(Error::NotInitialized),
+        };
+        let target_surface = match inner.binding.as_ref() {
+            Some(binding) if !inner.revoked => Some((binding.surface().raw(), false)),
+            _ => inner.pbuffer.as_ref().map(|pbuffer| (pbuffer.raw(), true)),
+        };
+        let (surface_raw, is_pbuffer) = match target_surface {
+            Some(target) => target,
+            None => return Err(Error::NoSurface),
+        };
+
+        let ok =
+            unsafe { eglffi::eglMakeCurrent(display_raw, surface_raw, surface_raw, context_raw) };
+        if ok != eglffi::EGL_TRUE {
+            return Err(Error::graphics("eglMakeCurrent", last_error()));
+        }
+
+        inner.owner = Some(thread);
+        inner.owner_role = Some(role);
+
+        // vsync applies per thread in EGL, so set it on every attach.
+        let interval = self.swap_interval.load(Ordering::Relaxed);
+        if interval >= 0 {
+            let ok = unsafe { eglffi::eglSwapInterval(display_raw, interval) };
+            if ok != eglffi::EGL_TRUE {
+                bb_debug!(
+                    "eglSwapInterval({interval}) refused on attach: 0x{:04x}",
+                    last_error()
+                );
+            }
+        }
+
+        // GL strings need a current context; the first successful attach is also
+        // where the C++ core logged `Surface bound. …`.
+        if inner.info.is_none() {
+            let info = inner
+                .context
+                .as_ref()
+                .and_then(GlesBackend::query_renderer_info);
+            if let Some(info) = info.as_ref() {
+                // `summary()` carries `GL_VENDOR=… | GL_RENDERER=… | GL_VERSION=…`,
+                // the shape the C++ core logged with `Surface bound. …` and the
+                // shape `NativeBridge.getRendererInfo()` still returns.
+                bb_info!(
+                    "Surface bound: {} [{}] (best available: {})",
+                    info.summary(),
+                    info.describe(),
+                    info.best_available
+                );
+            }
+            inner.info = info;
+        }
+
+        if role == ThreadRole::Game {
+            bb_info!(
+                "game thread attached ({} context, generation {})",
+                if is_pbuffer { "offscreen" } else { "window" },
+                inner.generation
+            );
+        }
+        Ok(())
+    }
+
+    /// Gives up on the current binding: forgets the dead EGL state and revokes
+    /// the binding so the render loop parks instead of hammering a display that
+    /// is not coming back.
+    fn abandon_binding(&self, inner: &mut GlesInner, reason: Error) -> Error {
+        self.forget_display(inner);
+        inner.revoked = true;
+        bb_error!(
+            "surface generation {} is unusable and was abandoned: {reason}; a new surfaceCreated (rotation, relaunch) is needed",
+            inner.generation
+        );
+        reason
+    }
+
+    /// Recreates the window surface while keeping the display and context.
+    ///
+    /// This is the recovery for the failure mode that was actually observed: the
+    /// `EGLContext` is still valid (libEGL's `eglMakeCurrent` checks the context
+    /// *first* and reports `EGL_BAD_CONTEXT` when that is the missing object) but
+    /// our `EGLSurface` is gone. Keeping the context is what keeps the game's
+    /// textures, shaders and VAOs alive, which is the promise
+    /// `GraphicsConfig::preserve_context` makes.
+    fn recreate_surface_only(&self, inner: &mut GlesInner) -> Result<()> {
+        match (
+            inner.binding.as_mut(),
+            inner.display.as_ref(),
+            inner.config.as_ref(),
+        ) {
+            (Some(binding), Some(display), Some(config)) => {
+                binding.recreate_surface(display, config)
+            }
+            _ => Err(Error::NoSurface),
+        }
+    }
+
+    /// Tries to recover from a failed attach, within the documented bound.
+    fn rebuild_and_retry(
+        &self,
+        inner: &mut GlesInner,
+        thread: ThreadId,
+        role: ThreadRole,
+        first_error: Error,
+    ) -> Result<()> {
+        if inner.recoveries >= MAX_EGL_REBUILDS {
+            return Err(self.abandon_binding(inner, first_error));
+        }
+        inner.recoveries += 1;
+        let generation = inner.generation;
+
+        // 1. Cheap path: the context survived, only the surface was destroyed
+        //    behind our back. Recreate just that and keep the GL objects.
+        if self.recreate_surface_only(inner).is_ok()
+            && self.attach_current(inner, thread, role).is_ok()
+        {
+            bb_warn!(
+                "EGL surface was destroyed behind the bridge; rebuilt it from the window (generation {generation})"
+            );
+            return Ok(());
+        }
+
+        // 2. The display itself is gone: forget the (dead) handles without
+        //    calling into EGL and build a fresh display, context and surface.
+        bb_warn!(
+            "EGL is no longer usable ({first_error}); rebuilding it (attempt {}/{MAX_EGL_REBUILDS})",
+            inner.recoveries
+        );
+        if let Err(error) = self.rebuild_display(inner) {
+            return Err(self.abandon_binding(inner, error));
+        }
+        self.attach_current(inner, thread, role)
+    }
 }
 
 impl GraphicsBackend for GlesBackend {
@@ -347,64 +609,15 @@ impl GraphicsBackend for GlesBackend {
 
     fn initialize(&self) -> Result<()> {
         let mut inner = self.lock();
-        if inner.display.is_some() {
-            return Ok(());
-        }
-
-        let display = Display::initialize()?;
-        bb_info!("{}", display.info().describe());
-
-        let config = display.choose_config(&self.config.config_request)?;
-        bb_info!("EGL config: {}", config.describe());
-
-        let context = Context::create_best(&display, &config)?;
-
-        // A 1x1 pbuffer costs nothing and buys the surface-loss path: the game's
-        // context stays current (and its GL objects stay valid) while Android
-        // has taken the window away.
-        let pbuffer = match PbufferSurface::create(&display, &config, SurfaceSize::new(1, 1)) {
-            Ok(pbuffer) => Some(pbuffer),
-            Err(error) => {
-                bb_debug!("no pbuffer surface: {error}");
-                None
-            }
-        };
-
-        // GL strings can only be read with a real surface current.
-        let info = match pbuffer.as_ref() {
-            Some(pbuffer) => {
-                match context.make_current(&display, CurrentTarget::Pbuffer(pbuffer)) {
-                    Ok(()) => {
-                        let info = GlesBackend::query_renderer_info(&context);
-                        let _ = context.make_current(&display, CurrentTarget::None);
-                        info
-                    }
-                    Err(error) => {
-                        bb_warn!("could not make the new context current: {error}");
-                        None
-                    }
-                }
-            }
-            None => None,
-        };
-
-        let interval = self.swap_interval.load(Ordering::Relaxed);
-        context.set_swap_interval(&display, interval)?;
-        if let Some(info) = info.as_ref() {
-            bb_info!(
-                "Renderer = {} [{}] (best available: {})",
-                info.renderer,
-                info.describe(),
-                info.best_available
-            );
-        }
-
-        inner.display = Some(display);
-        inner.config = Some(config);
-        inner.context = Some(context);
-        inner.pbuffer = pbuffer;
-        inner.info = info;
+        // Deliberately no EGL work here. The display, its context and the window
+        // surface are created together on the first bind (`ensure_display`), so
+        // the window in which another EGL user in this process can terminate the
+        // shared default display under us is as small as it can be. This is a
+        // behaviour change from the first Rust rewrite, which created EGL at
+        // `createRuntime` — a second before the window existed — and is exactly
+        // how a valid `EGLSurface` ended up unresolvable on the first frame.
         inner.revoked = true; // no window bound yet
+        bb_debug!("EGL is created on the first surface bind (see docs/GRAPHICS.md)");
         Ok(())
     }
 
@@ -418,12 +631,13 @@ impl GraphicsBackend for GlesBackend {
         self.retire("replace")?;
 
         let mut inner = self.lock();
-        if inner.display.is_none() {
-            // Release the window reference by dropping it on the error path.
-            return Err(Error::NotInitialized);
-        }
+        // Create (or re-create) EGL here rather than at `initialize`: the
+        // display, the context and the surface then belong to one short
+        // sequence, which is the whole point of the late-creation rule.
+        self.ensure_display(&mut inner)?;
         inner.generation += 1;
         let generation = inner.generation;
+        inner.recoveries = 0;
 
         let created = match (inner.display.as_ref(), inner.config.as_ref()) {
             (Some(display), Some(config)) => {
@@ -480,49 +694,14 @@ impl GraphicsBackend for GlesBackend {
             }
         }
 
-        // Extract everything the EGL call needs as plain values, so no borrow of
-        // `inner` is alive while the owner bookkeeping is updated below.
-        let (display_raw, context_raw) = match (inner.display.as_ref(), inner.context.as_ref()) {
-            (Some(display), Some(context)) => (display.raw(), context.raw()),
-            _ => return Err(Error::NotInitialized),
-        };
-        let target_surface = match inner.binding.as_ref() {
-            Some(binding) if !inner.revoked => Some((binding.surface().raw(), false)),
-            _ => inner.pbuffer.as_ref().map(|pbuffer| (pbuffer.raw(), true)),
-        };
-        let (surface_raw, is_pbuffer) = match target_surface {
-            Some(target) => target,
-            None => return Err(Error::NoSurface),
-        };
-
-        let ok =
-            unsafe { eglffi::eglMakeCurrent(display_raw, surface_raw, surface_raw, context_raw) };
-        if ok != eglffi::EGL_TRUE {
-            return Err(Error::graphics("eglMakeCurrent", last_error()));
+        self.ensure_display(&mut inner)?;
+        match self.attach_current(&mut inner, thread, role) {
+            Ok(()) => Ok(()),
+            // A failed `eglMakeCurrent` against a surface we own means the
+            // display underneath us is gone (see the module docs), not that the
+            // frame was unlucky: rebuild once and retry.
+            Err(error) => self.rebuild_and_retry(&mut inner, thread, role, error),
         }
-
-        inner.owner = Some(thread);
-        inner.owner_role = Some(role);
-
-        // vsync applies per thread in EGL, so set it on every attach.
-        let interval = self.swap_interval.load(Ordering::Relaxed);
-        if interval >= 0 {
-            let ok = unsafe { eglffi::eglSwapInterval(display_raw, interval) };
-            if ok != eglffi::EGL_TRUE {
-                bb_debug!(
-                    "eglSwapInterval({interval}) refused on attach: 0x{:04x}",
-                    last_error()
-                );
-            }
-        }
-        if role == ThreadRole::Game {
-            bb_info!(
-                "game thread attached ({} context, generation {})",
-                if is_pbuffer { "offscreen" } else { "window" },
-                inner.generation
-            );
-        }
-        Ok(())
     }
 
     fn release_current(&self) -> Result<()> {
@@ -692,7 +871,7 @@ fn parse_es_version(gl_version: &str) -> Option<(i32, i32)> {
     let marker = "OpenGL ES ";
     let start = gl_version.find(marker)? + marker.len();
     let rest = &gl_version[start..];
-    let mut parts = rest.split(|c: char| c == '.' || c == ' ' || c == 'v');
+    let mut parts = rest.split(['.', ' ', 'v']);
     let major = parts.next()?.parse::<i32>().ok()?;
     let minor = parts.next()?.parse::<i32>().ok()?;
     Some((major, minor))

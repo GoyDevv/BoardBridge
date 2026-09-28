@@ -12,6 +12,10 @@ boardbridge/target/
 # Generated-table download cache (tools/generate_sdl_tables.py)
 .sdl_tables_cache/
 
+# CPython bytecode left behind by running tools/generate_sdl_tables.py
+__pycache__/
+*.pyc
+
 # Local tooling scratch: rustup init, vendored crate sources
 .tools/
 .freebuff/
