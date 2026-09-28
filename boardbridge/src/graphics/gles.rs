@@ -39,8 +39,15 @@
 //! has a surface. Creating the display there and binding a window later leaves a
 //! window in which the activity's own HWUI render thread can tear its EGL state
 //! down and take our display's objects with it. The former C++ core created EGL
-//! inside the render thread that starts on `surfaceCreated`, which is why it
-//! never saw this — and why the same sequence is restored here.
+//! inside the render thread that starts on `surfaceCreated`, which is why the
+//! same sequence is restored here.
+//!
+//! To be exact about what fixed what: the black screen this crate shipped was
+//! **not** an invalidated display — it was `WindowSurface::create` returning a
+//! handle whose `Drop` had already run (see that function). Late creation and the
+//! recovery path below are defences against an external `eglTerminate`, which no
+//! log has shown yet; they narrow the window and make a failure recoverable, and
+//! they are worth keeping for a game that brings its own GL setup.
 //!
 //! # Threading
 //!

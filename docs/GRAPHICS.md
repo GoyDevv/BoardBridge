@@ -54,17 +54,40 @@ VAOs alive across rotation and backgrounding (`preserve_context = true`, the
 default). Reduced-depth/stencil variants and an opaque (no-alpha) variant exist
 for drivers that expose no matching config.
 
-### EGL lifetime, and what happens when someone else terminates the display
+### EGL lifetime: two failures that look identical
 
-The default EGL display is **process-wide**. libEGL keeps every `EGLSurface` and
-`EGLContext` made from it in a per-display object table, and any other EGL user in
-the process (the activity's own HWUI render thread, a library, a game's own GL
-setup) may call `eglTerminate` on that display. When that happens our handles stay
-non-null but stop resolving: every later call on them fails with `EGL_BAD_SURFACE`
-(`0x300D`), including `eglDestroySurface`. This is the failure that produced a
-black screen with `eglMakeCurrent failed (code 0x300d)` repeated once per frame.
+`EGL_BAD_SURFACE` (`0x300d`) from `eglMakeCurrent` on a *non-null* `EGLSurface`
+has two quite different causes. Both were real here, and both produced a black
+screen, so the distinction is worth keeping.
 
-Two rules follow, and both are implemented:
+**1. The handle was already destroyed — by us.** `WindowSurface::create` returned
+the surface it had just created through struct update syntax
+(`WindowSurface { size, ..surface }`). Every field that syntax takes from the
+source is `Copy` (two raw handles and a `SurfaceSize`), so it *copied* them out and
+left the source fully initialised; `Drop` then ran `eglDestroySurface` on the
+handle being returned. The result was a caller holding a non-null `EGLSurface`
+that EGL no longer recognised: `eglCreateWindowSurface` succeeded, and
+`eglQuerySurface` and `eglMakeCurrent` four milliseconds later failed with
+`0x300d` — on the emulator *and* on a phone, at the first frame. Nothing about
+the surface lifecycle could have fixed it: the failure was in the return value.
+The fix is to write the size into the struct (`surface.size = size`) rather than
+copy the struct, and `tools/host_check_android.sh` now fails CI if any of
+`WindowSurface`, `PbufferSurface`, `Context`, `Display`, `WindowBinding` or
+`OwnedNativeWindow` is ever built with struct update syntax again. `egl/surface.rs`
+carries the long-form explanation next to the code.
+
+**2. Another EGL user terminated the shared display.** The default EGL display is
+**process-wide**. libEGL keeps every `EGLSurface` and `EGLContext` made from it in
+a per-display object table, and any other EGL user in the process (the activity's
+own HWUI render thread, a library, a game's own GL setup) may call `eglTerminate`
+on that display. When that happens our handles stay non-null but stop resolving:
+every later call on them fails with `EGL_BAD_SURFACE`, including
+`eglDestroySurface`. This has not been observed in a log yet — it is the failure
+the design below defends against, and it is why the checks list an *unrecovered*
+`0x300d` as the thing to report (the recovery is legitimate; a busy log line is
+not a broken bridge).
+
+Two rules follow from cause 2, and both are implemented:
 
 1. **EGL is created late.** Nothing in `GlesBackend::initialize` touches EGL: the
 display, config, context and offscreen surface are created by `ensure_display` on

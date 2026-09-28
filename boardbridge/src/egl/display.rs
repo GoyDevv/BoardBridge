@@ -11,7 +11,7 @@ use crate::bb_warn;
 use crate::egl::config::ConfigRequest;
 use crate::egl::ffi::{
     self, EGLConfig, EGLDisplay, EGLint, EGL_ALPHA_SIZE, EGL_CONFIG_CAVEAT, EGL_DEPTH_SIZE,
-    EGL_EXTENSIONS, EGL_NATIVE_VISUAL_ID, EGL_PBUFFER_BIT, EGL_SAMPLES, EGL_STENCIL_SIZE,
+    EGL_EXTENSIONS, EGL_NATIVE_VISUAL_ID, EGL_NONE, EGL_PBUFFER_BIT, EGL_SAMPLES, EGL_STENCIL_SIZE,
     EGL_SURFACE_TYPE, EGL_TRUE, EGL_VENDOR, EGL_VERSION,
 };
 use crate::egl::{last_error, DisplayInfo};
@@ -214,9 +214,12 @@ impl Display {
             let surface_type = self.config_attrib(raw, EGL_SURFACE_TYPE, 0);
             let caveat = self.config_attrib(raw, EGL_CONFIG_CAVEAT, 0);
 
-            if caveat != 0 {
-                // EGL_SLOW_CONFIG / EGL_NON_CONFORMANT_CONFIG: usable but worth
-                // knowing about on a device that has to run a desktop workload.
+            // `EGL_CONFIG_CAVEAT` is `EGL_NONE` (0x3038) on the configs that are
+            // fine; only `EGL_SLOW_CONFIG` / `EGL_NON_CONFORMANT_CONFIG` are worth
+            // reporting. Comparing against `0` meant every device logged a caveat
+            // of `0x3038` — a warning that says "no caveat" and hides the real
+            // ones while reading a device's logcat.
+            if caveat != EGL_NONE {
                 bb_warn!("eglChooseConfig [{label}] picked a config with caveat 0x{caveat:x}");
             }
 

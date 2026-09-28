@@ -79,8 +79,11 @@ jobs:
           profile: pixel_5
           disable-animations: true
           emulator-options: -no-window -no-snapshot -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          # NOTE: this action runs every *line* below as its own `sh -c`, so it
+          # is a list of single commands, not a shell script: no `set -e`, no
+          # shell functions, no multi-line `if`. Anything more involved belongs
+          # in a file that one line then runs (see the assertions step).
           script: |
-            set -e
             mkdir -p artifacts
             adb wait-for-device
             adb install -r app/build/outputs/apk/debug/app-debug.apk
@@ -125,55 +128,13 @@ jobs:
             echo "===== BoardBridge logcat ====="
             cat artifacts/logcat-boardbridge.txt
 
-            fail() { echo "ERROR: $1"; exit 1; }
-
-            # Each check is a single line on purpose. A trailing backslash here
-            # is a shell continuation that the emulator runner's script handling
-            # does not always preserve, and the failure that produced was a
-            # `grep: \: No such file or directory` that made the assertions look
-            # as if they had run.
-            [ -s artifacts/logcat-boardbridge.txt ] || fail "logcat-boardbridge.txt is empty or missing"
-
-            # 1. The EGL context exists and the GL strings crossed JNI.
-            grep -q "GL_VERSION=" artifacts/logcat-boardbridge.txt || fail "no GL_VENDOR/GL_RENDERER/GL_VERSION line: the context never came up"
-
-            # 2. The surface was bound through the lifecycle machine and EGL.
-            grep -q "First frame rendered" artifacts/logcat-boardbridge.txt || fail "no 'First frame rendered' line: the surface/EGL path did not run"
-
-            # 3. The internal loop kept drawing and read the centre pixel back
-            #    (the clear colour is (0, 158, 166); allow 1 LSB of rounding).
-            grep -Eq "frames=[0-9]+ fps=[0-9.]+ mode=SOLID" artifacts/logcat-boardbridge.txt || fail "no frame-statistics line: the render loop did not run"
-            grep -Eq "center_pixel_RGBA=\([0-9]+,15[0-9],16[0-9],25[0-5]\)" artifacts/logcat-boardbridge.txt || fail "centre pixel is not the diagnostic solid colour"
-
-            # 4. The EGL surface was never abandoned or left unusable. A
-            #    non-null EGLSurface that EGL no longer resolves (EGL_BAD_SURFACE,
-            #    0x300d) is the failure this test exists to catch, and the bridge
-            #    recovers from it by rebuilding the surface from the window it
-            #    still owns; only an *unrecovered* failure is a test failure.
-            if grep -q "is unusable and was abandoned" artifacts/logcat-boardbridge.txt; then
-              fail "an EGL surface was abandoned: bind/makeCurrent could not be recovered"
-            fi
-            if grep -q "still cannot make the context current" artifacts/logcat-boardbridge.txt; then
-              fail "repeated eglMakeCurrent failures: the context never became usable"
-            fi
-
-            # 5. Input really was translated to SDL: KEYCODE_A must reach the
-            #    queue as scancode A (29 -> SDL_SCANCODE_A), not as a raw Android
-            #    keycode passed through.
-            grep -q "key DOWN code=29 scancode=A" artifacts/logcat-boardbridge.txt || fail "KEYCODE_A did not arrive as SDL scancode A"
-            grep -q "touch DOWN at" artifacts/logcat-boardbridge.txt || fail "no touch event reached the diagnostic renderer"
-
-            # 6. The surface was torn down and handed over again: HOME then
-            #    relaunch must produce a second, independent binding.
-            BINDINGS=$(grep -c "surface created:" artifacts/logcat-boardbridge.txt || true)
-            echo "surface bindings: $BINDINGS"
-            [ "$BINDINGS" -ge 2 ] || fail "expected at least 2 surface bindings after HOME + relaunch, saw $BINDINGS"
-
-            # 7. The runtime was torn down cleanly.
-            grep -q "runtime created" artifacts/logcat-boardbridge.txt || fail "no 'runtime created' line: createRuntime never ran"
-            grep -q "runtime stopped" artifacts/logcat-boardbridge.txt || fail "the runtime was never stopped: onDestroy/back handling is wrong"
-
-            echo "All render-test assertions passed."
+            # The assertions live in .github/scripts/render-test-assertions.sh:
+            # they need shell functions and multi-line `if` blocks, which this
+            # action's per-line execution cannot express. Running them as one
+            # command is the whole point — the previous inline version defined
+            # `fail()` and then reported `sh: 1: fail: not found`, so no
+            # assertion ran at all.
+            sh .github/scripts/render-test-assertions.sh artifacts/logcat-boardbridge.txt
 
       - name: Upload render evidence
         if: always()

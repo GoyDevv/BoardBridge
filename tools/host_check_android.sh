@@ -20,6 +20,44 @@ set -eu
 SRC=${1:-boardbridge}
 OUT=${HOST_CHECK_DIR:-/tmp/boardbridge-host-check}
 
+# Guard, before anything is compiled: none of these types may be built with
+# struct update syntax. Every field struct update syntax would take from the
+# source is `Copy`, so it copies them out and leaves the source fully
+# initialised — `Drop` then destroys the handle that is being returned. The
+# caller keeps a non-null `EGLSurface`/`Display`/window that is already gone,
+# which is a black screen rather than a compile error (this is exactly how the
+# first frame was destroyed: `WindowSurface { size, ..surface }`).
+python3 - "$SRC/src" <<'PY'
+import pathlib
+import re
+import sys
+
+HANDLE_TYPES = (
+    "WindowSurface",
+    "PbufferSurface",
+    "Context",
+    "Display",
+    "WindowBinding",
+    "OwnedNativeWindow",
+)
+pattern = re.compile(r"\b(" + "|".join(HANDLE_TYPES) + r")\s*\{[^{}]*\.\.")
+found = []
+for path in pathlib.Path(sys.argv[1]).rglob("*.rs"):
+    # Comments quote the pattern on purpose (the note in `surface.rs` explains
+    # the trap), and a struct literal may span lines, so strip comments line by
+    # line and then search the whole file at once.
+    text = "\n".join(line.split("//", 1)[0] for line in path.read_text().splitlines())
+    for match in pattern.finditer(text):
+        number = text.count("\n", 0, match.start()) + 1
+        found.append(f"{path}:{number}: {text[match.start():match.end()].strip()}")
+if found:
+    print("ERROR: an EGL/platform handle is built with struct update syntax,")
+    print("       which drops the copy that is returned:")
+    for line in found:
+        print("  " + line)
+    sys.exit(1)
+PY
+
 rm -rf "$OUT"
 mkdir -p "$OUT"
 cp -a "$SRC/Cargo.toml" "$OUT/"

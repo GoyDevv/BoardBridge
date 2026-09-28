@@ -58,13 +58,25 @@ impl WindowSurface {
         if raw == ffi::EGL_NO_SURFACE {
             return Err(Error::graphics("eglCreateWindowSurface", last_error()));
         }
-        let surface = WindowSurface {
+        let mut surface = WindowSurface {
             display: display.raw(),
             raw,
             size: SurfaceSize::default(),
         };
+        // The size is written into `surface` instead of being applied through
+        // struct update syntax (`WindowSurface { size, ..surface }`), and that is
+        // deliberate. Every field that struct update syntax would take from the
+        // source is `Copy` (two raw handles and a `SurfaceSize`), so it *copies*
+        // them out and leaves the source fully initialised — `Drop` then runs
+        // `eglDestroySurface` on the handle that is being returned. The caller
+        // gets a non-null `EGLSurface` that EGL no longer recognises, and every
+        // later call on it, starting with the first `eglMakeCurrent`, fails with
+        // `EGL_BAD_SURFACE` (`0x300d`). That is exactly the black screen this
+        // crate shipped: `eglCreateWindowSurface` succeeded, and `eglQuerySurface`
+        // and `eglMakeCurrent` four milliseconds later did not.
         let size = surface.query_size().unwrap_or_else(|| window.size());
-        Ok(WindowSurface { size, ..surface })
+        surface.size = size;
+        Ok(surface)
     }
 
     /// Raw handle for `eglMakeCurrent`/`eglSwapBuffers`.
