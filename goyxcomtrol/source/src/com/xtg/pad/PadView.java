@@ -99,6 +99,9 @@ public final class PadView extends View {
         float x = e.getX(idx), y = e.getY(idx);
         Ctrl c = hit(x, y);
         if (c == null) return false;                               // the page keeps it
+        /* Ask Android for unbuffered motion as soon as this overlay claims a pointer.
+           This removes framework batching latency from the camera path. */
+        requestUnbufferedDispatch();
         if (edit) {
           selected = c;
           origin.put(id, new float[]{ x, y, c.x, c.y });
