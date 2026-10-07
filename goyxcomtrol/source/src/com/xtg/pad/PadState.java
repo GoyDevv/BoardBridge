@@ -97,24 +97,27 @@ public final class PadState {
   /* ---- camera --------------------------------------------------------------- */
   private long prevT = 0;
   private long lastMove = 0;
-  private long stillAt = 0;
   private float interval = 8f;
   private float vx = 0f, vy = 0f;
   private boolean camDown = false;
 
   /*
-   * Camera response is deliberately delta/velocity based, but it is NOT normalized
-   * before the sensitivity curve. The previous implementation filtered a normalized
-   * value and then clamped it, which meant increasing sensitivity mostly caused
-   * saturation instead of making the camera faster.
+   * Precision touch camera:
    *
-   * 53 ms is only the late-input/coast timeout. It never participates in gain.
+   * The touch surface is a relative pointing device. Each digitiser sample is
+   * converted directly into a right-stick velocity, with NO smoothing, square-root
+   * curve, or multi-sample history. Those operations change the geometric relationship
+   * between the path of the finger and the path of the camera.
+   *
+   * The timestamp is used only to make the response invariant to touch sample rate.
+   * The last non-zero velocity is held between samples, then cut after exactly the
+   * user's 53 ms watchdog threshold. A delayed (>40 ms) sample is discarded rather
+   * than turned into a fling.
    */
   public void camDown(long tMs) {
     camDown = true;
     prevT = tMs;
     lastMove = tMs;
-    stillAt = 0;
     vx = vy = 0f;
     rx = ry = 0f;
   }
@@ -130,73 +133,50 @@ public final class PadState {
       interval += (dtMs - interval) * 0.18f;
     }
 
-    if (dx == 0f && dy == 0f) {
-      if (stillAt == 0) stillAt = tMs;
-      return;
-    }
+    if (dx == 0f && dy == 0f) return;
 
-    stillAt = 0;
-    lastMove = tMs;
-
-    // Never turn a delayed/stalled event into a fling.
     if (dtMs > 40L) {
+      // Do not convert a stalled event into an unpredictable camera jump.
       vx = vy = 0f;
+      rx = ry = 0f;
       return;
     }
+
+    lastMove = tMs;
 
     float dens = density <= 0f ? 1f : density;
 
-    // Pixels per millisecond, converted to a stable physical-ish velocity.
-    float sx = (dx / dens) / dtMs;
-    float sy = (dy / dens) / dtMs;
-
-    // A power response keeps micro-aim precise while preserving fast swipes.
-    // Sensitivity changes gain continuously instead of immediately saturating.
-    float gainX = sens / 100f;
+    // Keep the familiar sensitivity scale around the 1.0 reference at 175%.
+    // The response itself is strictly linear, so a circle stays a circle and
+    // direction follows the finger instead of being warped by a curve.
+    float gainX = (sens / 175f) * 0.42f;
     float gainY = gainX * sensY / 100f;
-    float ref = 0.42f;
 
-    float tx = response(sx / ref) * gainX;
-    float ty = response(sy / ref) * gainY;
+    float tx = ((dx / dens) / dtMs) * gainX;
+    float ty = ((dy / dens) / dtMs) * gainY;
     if (invertY) ty = -ty;
 
-    // One tiny one-pole step removes digitizer quantization without adding a
-    // multi-frame history. At normal touch rates this is effectively immediate.
-    final float follow = 0.94f;
-    vx += (tx - vx) * follow;
-    vy += (ty - vy) * follow;
-  }
-
-  private static float response(float x) {
-    float a = Math.abs(x);
-    if (a < 0.012f) return 0f;
-    // sqrt gives much more resolution around the center while retaining full
-    // range for fast finger movement.
-    float y = (float) Math.sqrt(a);
-    return x < 0f ? -y : y;
+    vx = tx;
+    vy = ty;
+    rx = clamp(tx);
+    ry = clamp(ty);
   }
 
   public void camUp() {
     camDown = false;
-    rx = 0f;
-    ry = 0f;
+    rx = ry = 0f;
     vx = vy = 0f;
-    stillAt = 0;
   }
 
   public void camCompute(long nowMs) {
     if (!camDown) {
-      rx = 0f; ry = 0f;
+      rx = ry = 0f;
       return;
     }
 
-    // 53 ms is the user's chosen sweet spot. It is only a stale-input cutoff.
-    if (stillAt != 0 && nowMs - stillAt >= stillMs) {
-      rx = 0f; ry = 0f;
-      return;
-    }
-    if (nowMs - lastMove >= stillMs && stillAt == 0) {
-      rx = 0f; ry = 0f;
+    // Exactly 53 ms by default: this is only a watchdog, never a sensitivity term.
+    if (nowMs - lastMove >= stillMs) {
+      rx = ry = 0f;
       return;
     }
 
