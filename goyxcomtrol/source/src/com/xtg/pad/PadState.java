@@ -20,8 +20,7 @@ public final class PadState {
   public volatile boolean connected;
 
   /* ---- tunables, persisted ---- */
-  public volatile int sens = 175;           // right stick, % (same numbers as the extension)
-  public volatile int sensY = 135;
+  public volatile int sens = 175;           // unified camera sensitivity, % (X and Y together)
   public volatile int stillMs = 53;         // user's sweet spot: late-frame coast threshold
   public volatile boolean invertY = false;
   public volatile int deadzone = 0;         // left stick, %
@@ -53,9 +52,9 @@ public final class PadState {
   private static final String[] WASD = { "KeyW", "KeyS", "KeyA", "KeyD" };
 
   public synchronized void kbmMouse(float dx, float dy) {
-    float g = mouseSens / 100f, gy = g * sensY / 100f;
+    float g = mouseSens / 100f;
     mdx += dx * g;
-    mdy += dy * gy * (invertY ? -1 : 1);
+    mdy += dy * g * (invertY ? -1 : 1);
   }
 
   public synchronized void kbmSend(int idx, boolean down) {
@@ -94,26 +93,21 @@ public final class PadState {
 
   public float touchInterval() { return interval; }
 
-  /* ---- camera --------------------------------------------------------------- */
+  /* ---- camera ---------------------------------------------------------------
+     Relative touch camera. Every digitiser sample is converted immediately to a
+     frame-rate-independent velocity. There is no history window and no delayed
+     renderer queue. A very small asymmetric filter only suppresses digitiser noise;
+     reversals are applied immediately. The 53 ms value remains the hard stop watchdog. */
+
+  private static final float AIM_DEADZONE = 0.08f;
+  private static final float AIM_NOISE_PX = 0.22f;
+
   private long prevT = 0;
   private long lastMove = 0;
   private float interval = 8f;
   private float vx = 0f, vy = 0f;
   private boolean camDown = false;
 
-  /*
-   * Precision touch camera:
-   *
-   * The touch surface is a relative pointing device. Each digitiser sample is
-   * converted directly into a right-stick velocity, with NO smoothing, square-root
-   * curve, or multi-sample history. Those operations change the geometric relationship
-   * between the path of the finger and the path of the camera.
-   *
-   * The timestamp is used only to make the response invariant to touch sample rate.
-   * The last non-zero velocity is held between samples, then cut after exactly the
-   * user's 53 ms watchdog threshold. A delayed (>40 ms) sample is discarded rather
-   * than turned into a fling.
-   */
   public void camDown(long tMs) {
     camDown = true;
     prevT = tMs;
@@ -129,37 +123,71 @@ public final class PadState {
     if (dtMs <= 0) dtMs = 1;
     prevT = tMs;
 
-    if (dtMs <= 40L) {
-      interval += (dtMs - interval) * 0.18f;
-    }
+    if (dtMs <= 60L) interval += (dtMs - interval) * 0.20f;
 
-    if (dx == 0f && dy == 0f) return;
-
-    if (dtMs > 40L) {
-      // Do not convert a stalled event into an unpredictable camera jump.
+    if (dtMs > 120L) {
       vx = vy = 0f;
       rx = ry = 0f;
+      lastMove = tMs;
       return;
     }
 
     lastMove = tMs;
 
+    /* Ignore sub-pixel digitiser chatter only when it is genuinely tiny and
+       arrives inside a very short sample interval. Real micro-aim is preserved. */
+    if (dtMs <= 8L && Math.abs(dx) + Math.abs(dy) < AIM_NOISE_PX) {
+      dx = dy = 0f;
+    }
+
     float dens = density <= 0f ? 1f : density;
+    float invDt = 1000f / (float) dtMs;
 
-    // Keep the familiar sensitivity scale around the 1.0 reference at 175%.
-    // The response itself is strictly linear, so a circle stays a circle and
-    // direction follows the finger instead of being warped by a curve.
-    float gainX = (sens / 175f) * 0.42f;
-    float gainY = gainX * sensY / 100f;
+    /* Match the proven extension scale: 150 is the neutral reference.
+       One sensitivity value drives both axes, so circles stay circles. */
+    float gain = sens / 150f;
+    float rawX = (dx / dens) * invDt * gain;
+    float rawY = (dy / dens) * invDt * gain;
+    if (invertY) rawY = -rawY;
 
-    float tx = ((dx / dens) / dtMs) * gainX;
-    float ty = ((dy / dens) / dtMs) * gainY;
-    if (invertY) ty = -ty;
+    /* Very light low-pass filtering. Direction changes bypass the filter so
+       flicks and tracking reversals do not feel delayed. */
+    float dot = rawX * vx + rawY * vy;
+    float alpha;
+    if (dot < -0.0002f) {
+      alpha = 1f;
+    } else {
+      float rawMag2 = rawX * rawX + rawY * rawY;
+      float oldMag2 = vx * vx + vy * vy;
+      alpha = rawMag2 >= oldMag2 ? 0.82f : 0.90f;
+    }
 
-    vx = tx;
-    vy = ty;
-    rx = clamp(tx);
-    ry = clamp(ty);
+    vx += (rawX - vx) * alpha;
+    vy += (rawY - vy) * alpha;
+
+    float outX = vx;
+    float outY = vy;
+    float m = (float) Math.sqrt(outX * outX + outY * outY);
+
+    if (m > 1f) {
+      float k = 1f / m;
+      outX *= k;
+      outY *= k;
+      m = 1f;
+    }
+
+    /* Compensate the game's low-end stick dead zone without changing direction.
+       This keeps slow aim alive while avoiding a jump when the finger first moves. */
+    if (m > 0f && m < AIM_DEADZONE) {
+      float k = AIM_DEADZONE / m;
+      outX *= k;
+      outY *= k;
+    } else if (m == 0f) {
+      outX = outY = 0f;
+    }
+
+    rx = clamp(outX);
+    ry = clamp(outY);
   }
 
   public void camUp() {
@@ -174,14 +202,34 @@ public final class PadState {
       return;
     }
 
-    // Exactly 53 ms by default: this is only a watchdog, never a sensitivity term.
-    if (nowMs - lastMove >= stillMs) {
+    long age = nowMs - lastMove;
+    if (age >= stillMs) {
+      /* 53 ms stays the exact hard cutoff. */
       rx = ry = 0f;
+      vx = vy = 0f;
       return;
     }
 
-    rx = clamp(vx);
-    ry = clamp(vy);
+    /* Do not hold full stick strength for the whole watchdog window.
+       Fade quickly after the last sample, which removes visible coast/drift
+       without shortening the requested 53 ms safety threshold. */
+    float factor = 1f;
+    if (age > 7L) {
+      float u = (age - 7f) / Math.max(1f, stillMs - 7f);
+      factor = 1f - u;
+      factor *= factor;
+    }
+
+    float outX = vx * factor;
+    float outY = vy * factor;
+    float m = (float) Math.sqrt(outX * outX + outY * outY);
+    if (m > 1f) {
+      float k = 1f / m;
+      outX *= k;
+      outY *= k;
+    }
+    rx = clamp(outX);
+    ry = clamp(outY);
   }
 
   private static float clamp(float v) {
