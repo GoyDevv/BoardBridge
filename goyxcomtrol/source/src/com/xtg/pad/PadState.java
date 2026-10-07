@@ -102,8 +102,14 @@ public final class PadState {
   private float vx = 0f, vy = 0f;
   private boolean camDown = false;
 
-  /* Uses MotionEvent's uptime clock throughout. This avoids comparing eventTime with
-     System.nanoTime(), whose epoch is intentionally unspecified by the Java API. */
+  /*
+   * Camera response is deliberately delta/velocity based, but it is NOT normalized
+   * before the sensitivity curve. The previous implementation filtered a normalized
+   * value and then clamped it, which meant increasing sensitivity mostly caused
+   * saturation instead of making the camera faster.
+   *
+   * 53 ms is only the late-input/coast timeout. It never participates in gain.
+   */
   public void camDown(long tMs) {
     camDown = true;
     prevT = tMs;
@@ -113,15 +119,16 @@ public final class PadState {
     rx = ry = 0f;
   }
 
-  /** one digitiser sample: movement in pixels and its exact uptime timestamp */
   public void camSample(float dx, float dy, long tMs) {
     if (!camDown) return;
+
     long dtMs = tMs - prevT;
     if (dtMs <= 0) dtMs = 1;
     prevT = tMs;
 
-    float ms = dtMs;
-    if (ms > 0.3f && ms < 40f) interval += (ms - interval) * 0.25f;
+    if (dtMs <= 40L) {
+      interval += (dtMs - interval) * 0.18f;
+    }
 
     if (dx == 0f && dy == 0f) {
       if (stillAt == 0) stillAt = tMs;
@@ -131,27 +138,42 @@ public final class PadState {
     stillAt = 0;
     lastMove = tMs;
 
+    // Never turn a delayed/stalled event into a fling.
     if (dtMs > 40L) {
-      // A stalled UI/event delivery should not turn a delayed batch into a giant fling.
-      vx *= 0.5f;
-      vy *= 0.5f;
+      vx = vy = 0f;
       return;
     }
 
     float dens = density <= 0f ? 1f : density;
-    float gx = sens / 150f;
-    float gy = gx * sensY / 100f;
-    float targetX = (dx / ms) / dens * gx;
-    float targetY = (dy / ms) / dens * gy;
-    if (invertY) targetY = -targetY;
 
-    // Very small filter, focused on removing digitiser quantisation noise without
-    // carrying a multi-frame history behind the thumb.
-    final float follow = 0.84f;
-    vx += (targetX - vx) * follow;
-    vy += (targetY - vy) * follow;
-    vx = clamp(vx);
-    vy = clamp(vy);
+    // Pixels per millisecond, converted to a stable physical-ish velocity.
+    float sx = (dx / dens) / dtMs;
+    float sy = (dy / dens) / dtMs;
+
+    // A power response keeps micro-aim precise while preserving fast swipes.
+    // Sensitivity changes gain continuously instead of immediately saturating.
+    float gainX = sens / 100f;
+    float gainY = gainX * sensY / 100f;
+    float ref = 0.42f;
+
+    float tx = response(sx / ref) * gainX;
+    float ty = response(sy / ref) * gainY;
+    if (invertY) ty = -ty;
+
+    // One tiny one-pole step removes digitizer quantization without adding a
+    // multi-frame history. At normal touch rates this is effectively immediate.
+    final float follow = 0.94f;
+    vx += (tx - vx) * follow;
+    vy += (ty - vy) * follow;
+  }
+
+  private static float response(float x) {
+    float a = Math.abs(x);
+    if (a < 0.012f) return 0f;
+    // sqrt gives much more resolution around the center while retaining full
+    // range for fast finger movement.
+    float y = (float) Math.sqrt(a);
+    return x < 0f ? -y : y;
   }
 
   public void camUp() {
@@ -162,16 +184,29 @@ public final class PadState {
     stillAt = 0;
   }
 
-  /** called immediately before the page or HID consumer reads the state */
   public void camCompute(long nowMs) {
-    if (!camDown) { rx = 0f; ry = 0f; return; }
-    if (stillAt != 0 && nowMs - stillAt >= stillMs) { rx = 0f; ry = 0f; return; }
-    if (nowMs - lastMove >= stillMs && stillAt == 0) { rx = 0f; ry = 0f; return; }
+    if (!camDown) {
+      rx = 0f; ry = 0f;
+      return;
+    }
+
+    // 53 ms is the user's chosen sweet spot. It is only a stale-input cutoff.
+    if (stillAt != 0 && nowMs - stillAt >= stillMs) {
+      rx = 0f; ry = 0f;
+      return;
+    }
+    if (nowMs - lastMove >= stillMs && stillAt == 0) {
+      rx = 0f; ry = 0f;
+      return;
+    }
+
     rx = clamp(vx);
     ry = clamp(vy);
   }
 
-  private static float clamp(float v) { return v < -1f ? -1f : (v > 1f ? 1f : v); }
+  private static float clamp(float v) {
+    return v < -1f ? -1f : (v > 1f ? 1f : v);
+  }
 
   /* ---- legacy wire format for compatibility/debug -------------------------------- */
   private final StringBuilder sb = new StringBuilder(160);
