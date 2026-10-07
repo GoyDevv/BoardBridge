@@ -64,7 +64,6 @@ public final class MainActivity extends Activity implements Sheet.Host {
     PadState st = Core.state;
     st.density = getResources().getDisplayMetrics().density;
     st.sens = prefs.getInt("sens", 175);
-    st.sensY = prefs.getInt("sensY", 135);
     st.stillMs = prefs.getInt("stillMs", 53);
     st.deadzone = prefs.getInt("dz", 0);
     st.mouseSens = prefs.getInt("mouseSens", 140);
