@@ -41,6 +41,7 @@ jobs:
           tar -xzf goyxcomtrol/work/source.tar.gz -C goyxcomtrol/work
           test -f goyxcomtrol/work/xtg-cloud-pad/build.sh
           test -f goyxcomtrol/work/xtg-cloud-pad/src/com/xtg/pad/PadState.java
+          sed -i "s/st.camSample(dx, dy, tNs)/st.camSample(dx, dy, tMs)/" goyxcomtrol/work/xtg-cloud-pad/src/com/xtg/pad/PadView.java
 
       - name: fetch shizuku build aars
         run: |
