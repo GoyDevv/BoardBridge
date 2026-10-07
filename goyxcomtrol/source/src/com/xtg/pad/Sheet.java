@@ -486,7 +486,7 @@ public final class Sheet extends FrameLayout {
         + "triggers, at up to 250 reports a second and only when a byte actually changed.");
       LinearLayout v = card();
       title(v, "Version");
-      note(v, "XTG Cloud Pad 1.5.0. No vibration anywhere unless you switch it on. No analytics, "
+      note(v, "XTG Cloud Pad 1.4.0. No vibration anywhere unless you switch it on. No analytics, "
         + "no network access of its own - the only thing it loads is the page you ask for.");
       note(v, "A virtual HID device is visible to everything on the phone while it exists, "
         + "including anything that enumerates input devices. Cloud gaming streams your input to a "
