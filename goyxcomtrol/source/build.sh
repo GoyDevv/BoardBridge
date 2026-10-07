@@ -35,15 +35,16 @@ with zipfile.ZipFile('unsigned.apk', 'a', zipfile.ZIP_DEFLATED) as z:
     z.write('classes.dex', 'classes.dex')
 PY
 
-KS=$APP/debug.keystore
-if [ ! -f "$KS" ]; then
-  keytool -genkeypair -keystore "$KS" -storepass android -keypass android \
-    -alias xtg -keyalg RSA -keysize 2048 -validity 10000 \
-    -dname "CN=XTG Cloud Pad, O=XTG, C=US" >/dev/null 2>&1
-fi
+# Deliberately generate a fresh signing key for this 1.3.0 build.
+# The private keystore is never staged or committed to the repository.
+KS=$APP/xtg-cloud-pad-1.3.0.keystore
+rm -f "$KS"
+keytool -genkeypair -keystore "$KS" -storepass android -keypass android \
+  -alias xtg-v1-3 -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname "CN=XTG Cloud Pad, O=XTG, C=US" >/dev/null 2>&1
 
 "$BT/zipalign" -f 4 unsigned.apk aligned.apk
 "$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
   --min-sdk-version 24 --out "$APP/xtg-cloud-pad-1.3.0.apk" aligned.apk
-"$BT/apksigner" verify --verbose --print-certs "$APP/xtg-cloud-pad-1.2.0.apk" | head -8
-printf 'APK: %s\n' "$APP/xtg-cloud-pad-1.2.0.apk"
+"$BT/apksigner" verify --verbose --print-certs "$APP/xtg-cloud-pad-1.3.0.apk" | head -8
+printf 'APK: %s\n' "$APP/xtg-cloud-pad-1.3.0.apk"
