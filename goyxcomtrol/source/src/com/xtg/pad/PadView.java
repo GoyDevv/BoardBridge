@@ -119,7 +119,18 @@ public final class PadView extends View {
         }
         long t = e.getEventTime();
         for (int i = 0; i < np; i++) move(e.getPointerId(i), e.getX(i), e.getY(i), t);
-        invalidate();
+
+        // The camera zone is invisible while playing. Redrawing the full-screen
+        // overlay for every camera sample needlessly competes with WebView/XCloud.
+        // Only redraw when a visible control actually changed.
+        boolean redraw = edit;
+        if (!redraw) {
+          for (int i = 0; i < owner.size(); i++) {
+            Ctrl oc = owner.valueAt(i);
+            if (oc != null && oc.kind != Ctrl.ZONE) { redraw = true; break; }
+          }
+        }
+        if (redraw) invalidate();
         return true;
       }
       case MotionEvent.ACTION_UP:
