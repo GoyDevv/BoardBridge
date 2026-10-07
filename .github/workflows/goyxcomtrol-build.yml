@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message != 'build goyxcomtrol 1.4.0 latency patch'
     runs-on: ubuntu-latest
     steps:
       - name: checkout
