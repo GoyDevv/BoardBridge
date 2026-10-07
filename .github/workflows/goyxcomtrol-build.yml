@@ -34,14 +34,15 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      - name: reconstruct source bundle
+      - name: prepare verified source tree
         run: |
+          set -euo pipefail
           mkdir -p goyxcomtrol/work
-          cat goyxcomtrol/_src_b64/*.part | base64 -d > goyxcomtrol/work/source.tar.gz
-          tar -xzf goyxcomtrol/work/source.tar.gz -C goyxcomtrol/work
+          rm -rf goyxcomtrol/work/xtg-cloud-pad
+          cp -a goyxcomtrol/source goyxcomtrol/work/xtg-cloud-pad
           test -f goyxcomtrol/work/xtg-cloud-pad/build.sh
           test -f goyxcomtrol/work/xtg-cloud-pad/src/com/xtg/pad/PadState.java
-          sed -i "s/st.camSample(dx, dy, tNs)/st.camSample(dx, dy, tMs)/" goyxcomtrol/work/xtg-cloud-pad/src/com/xtg/pad/PadView.java
+          test -f goyxcomtrol/work/xtg-cloud-pad/src/com/xtg/pad/PadView.java
 
       - name: fetch shizuku build aars
         run: |
