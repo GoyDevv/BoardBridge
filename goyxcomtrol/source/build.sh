@@ -35,16 +35,15 @@ with zipfile.ZipFile('unsigned.apk', 'a', zipfile.ZIP_DEFLATED) as z:
     z.write('classes.dex', 'classes.dex')
 PY
 
-# Deliberately generate a fresh signing key for this 1.4.0 build.
-# The private keystore is never staged or committed to the repository.
-KS=$APP/xtg-cloud-pad-1.4.0.keystore
-rm -f "$KS"
-keytool -genkeypair -keystore "$KS" -storepass android -keypass android \
-  -alias xtg-v1-4 -keyalg RSA -keysize 2048 -validity 10000 \
-  -dname "CN=XTG Cloud Pad, O=XTG, C=US" >/dev/null 2>&1
+# Permanent SpaceCell signing identity is supplied to CI.
+KS=$APP/signing/spacecell-release.jks
+STOREPASS=${SC_SIGN_STORE:?SC_SIGN_STORE is required}
+KEYALIAS=${SC_SIGN_ALIAS:-spacecell-release}
+test -f "$KS" || { echo "missing SpaceCell release keystore: $KS" >&2; exit 1; }
 
 "$BT/zipalign" -f 4 unsigned.apk aligned.apk
-"$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
-  --min-sdk-version 24 --out "$APP/xtg-cloud-pad-1.4.0.apk" aligned.apk
-"$BT/apksigner" verify --verbose --print-certs "$APP/xtg-cloud-pad-1.4.0.apk" | head -8
-printf 'APK: %s\n' "$APP/xtg-cloud-pad-1.4.0.apk"
+"$BT/apksigner" sign --ks "$KS" --ks-key-alias "$KEYALIAS" \
+  --ks-pass pass:"$STOREPASS" --key-pass pass:"$STOREPASS" \
+  --min-sdk-version 24 --out "$APP/xtg-cloud-pad-1.5.0.apk" aligned.apk
+"$BT/apksigner" verify --verbose --print-certs "$APP/xtg-cloud-pad-1.5.0.apk"
+printf 'APK: %s\n' "$APP/xtg-cloud-pad-1.5.0.apk"
