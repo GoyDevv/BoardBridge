@@ -73,6 +73,9 @@ jobs:
 
       - name: build apk
         working-directory: goyxcomtrol/work/xtg-cloud-pad
+        env:
+          SC_SIGN_STORE: ${{ secrets.SC_SIGN_STORE }}
+          SC_SIGN_ALIAS: spacecell-release
         run: |
           chmod +x build.sh
           ./build.sh
