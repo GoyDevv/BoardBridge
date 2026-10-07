@@ -94,7 +94,7 @@ jobs:
           cp -a goyxcomtrol/work/xtg-cloud-pad/. goyxcomtrol/source/
           cp goyxcomtrol/work/xtg-cloud-pad/xtg-cloud-pad-1.4.0.apk goyxcomtrol/dist/
           cp goyxcomtrol/work/xtg-cloud-pad/SHA256SUMS.txt goyxcomtrol/dist/
-          rm -rf goyxcomtrol/source/build goyxcomtrol/source/android/libs
+          rm -rf goyxcomtrol/source/build goyxcomtrol/source/android/libs goyxcomtrol/source/signing
           find goyxcomtrol/source -name '*.apk' -delete
           find goyxcomtrol/source -name '*.keystore' -delete
           rm -rf goyxcomtrol/_src_b64 goyxcomtrol/READY goyxcomtrol/work
