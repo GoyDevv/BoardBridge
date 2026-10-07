@@ -64,20 +64,20 @@ jobs:
         run: |
           chmod +x build.sh
           ./build.sh
-          test -s xtg-cloud-pad-1.2.0.apk
+          test -s xtg-cloud-pad-1.3.0.apk
 
       - name: verify apk
         working-directory: goyxcomtrol/work/xtg-cloud-pad
         run: |
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose xtg-cloud-pad-1.2.0.apk
-          sha256sum xtg-cloud-pad-1.2.0.apk > SHA256SUMS.txt
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose xtg-cloud-pad-1.3.0.apk
+          sha256sum xtg-cloud-pad-1.3.0.apk > SHA256SUMS.txt
 
       - name: stage source and apk
         run: |
           rm -rf goyxcomtrol/source goyxcomtrol/dist
           mkdir -p goyxcomtrol/source goyxcomtrol/dist
           cp -a goyxcomtrol/work/xtg-cloud-pad/. goyxcomtrol/source/
-          cp goyxcomtrol/work/xtg-cloud-pad/xtg-cloud-pad-1.2.0.apk goyxcomtrol/dist/
+          cp goyxcomtrol/work/xtg-cloud-pad/xtg-cloud-pad-1.3.0.apk goyxcomtrol/dist/
           cp goyxcomtrol/work/xtg-cloud-pad/SHA256SUMS.txt goyxcomtrol/dist/
           rm -rf goyxcomtrol/source/build goyxcomtrol/source/android/libs
           find goyxcomtrol/source -name '*.apk' -delete
@@ -96,5 +96,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: goyxcomtrol-1.2.0-apk
-          path: goyxcomtrol/dist/xtg-cloud-pad-1.2.0.apk
+          path: goyxcomtrol/dist/xtg-cloud-pad-1.3.0.apk
           if-no-files-found: error
