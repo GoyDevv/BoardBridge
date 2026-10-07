@@ -42,13 +42,16 @@ jobs:
           test -f goyxcomtrol/work/xtg-cloud-pad/build.sh
           test -f goyxcomtrol/work/xtg-cloud-pad/src/com/xtg/pad/PadState.java
 
-      - name: fetch shizuku build jars
+      - name: fetch shizuku build aars
         run: |
+          set -euo pipefail
           mkdir -p goyxcomtrol/work/xtg-cloud-pad/android/libs
-          base=https://repo1.maven.org/maven2/dev/rikka/shizuku
-          curl -fL --retry 3 "$base/api/13.1.5/api-13.1.5.jar" -o goyxcomtrol/work/xtg-cloud-pad/android/libs/api.jar
-          curl -fL --retry 3 "$base/provider/13.1.5/provider-13.1.5.jar" -o goyxcomtrol/work/xtg-cloud-pad/android/libs/provider.jar
-          curl -fL --retry 3 "$base/aidl/13.1.5/aidl-13.1.5.jar" -o goyxcomtrol/work/xtg-cloud-pad/android/libs/aidl.jar
+          base=https://repo.maven.apache.org/maven2/dev/rikka/shizuku
+          for a in aidl shared api provider; do
+            curl -fL --retry 3 "$base/$a/13.1.5/$a-13.1.5.aar" -o "goyxcomtrol/work/xtg-cloud-pad/android/libs/$a.aar"
+            unzip -p "goyxcomtrol/work/xtg-cloud-pad/android/libs/$a.aar" classes.jar > "goyxcomtrol/work/xtg-cloud-pad/android/libs/$a.jar"
+          done
+          curl -fL --retry 3 "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.3.0/annotation-1.3.0.jar"             -o goyxcomtrol/work/xtg-cloud-pad/android/libs/annotation.jar
 
       - name: validate javascript
         working-directory: goyxcomtrol/work/xtg-cloud-pad
