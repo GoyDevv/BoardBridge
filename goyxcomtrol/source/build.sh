@@ -44,6 +44,6 @@ fi
 
 "$BT/zipalign" -f 4 unsigned.apk aligned.apk
 "$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
-  --min-sdk-version 24 --out "$APP/xtg-cloud-pad-1.2.0.apk" aligned.apk
+  --min-sdk-version 24 --out "$APP/xtg-cloud-pad-1.3.0.apk" aligned.apk
 "$BT/apksigner" verify --verbose --print-certs "$APP/xtg-cloud-pad-1.2.0.apk" | head -8
 printf 'APK: %s\n' "$APP/xtg-cloud-pad-1.2.0.apk"
