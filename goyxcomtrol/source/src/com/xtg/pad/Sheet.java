@@ -274,8 +274,9 @@ public final class Sheet extends FrameLayout {
       title(s, "Aim");
       slider(s, "Sensitivity", 10, 400, st.sens, "%", new IntCb() {
         @Override public void on(int v) { st.sens = v; pr.putInt("sens", v); } });
-      slider(s, "Vertical", 20, 200, st.sensY, "%", new IntCb() {
-        @Override public void on(int v) { st.sensY = v; pr.putInt("sensY", v); } });
+      note(s, "One sensitivity controls both horizontal and vertical aim equally. "
+        + "There is no separate vertical multiplier, so diagonal and circular finger motion "
+        + "stays geometrically consistent.");
       if (st.kbm) {
         slider(s, "Mouse sensitivity", 10, 600, st.mouseSens, "%", new IntCb() {
           @Override public void on(int v) { st.mouseSens = v; pr.putInt("mouseSens", v); } });
@@ -289,9 +290,9 @@ public final class Sheet extends FrameLayout {
         @Override public void on(boolean v) { st.invertY = v; pr.putBool("invY", v); } });
       toggle(s, "Debug HUD", pv.hud, new BoolCb() {
         @Override public void on(boolean v) { pv.hud = v; pr.putBool("hud", v); pv.invalidate(); } });
-      note(s, "At 400% sensitivity the stick saturates at roughly 0.4 px/ms of thumb movement. "
-        + "Past full deflection the game's own turn rate is the ceiling, so if it still feels slow, "
-        + "raise the in-game sensitivity instead of this slider.");
+      note(s, "The aim path uses the full finger velocity and a very light filter, then compensates "
+        + "the low end of the game's stick dead zone. 53 ms remains the hard stop watchdog. "
+        + "At full stick output, the game's own maximum turn rate is still the ceiling.");
     }
 
     if (tab.equals("pad")) {
