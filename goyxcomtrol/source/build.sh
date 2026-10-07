@@ -44,6 +44,6 @@ test -f "$KS" || { echo "missing SpaceCell release keystore: $KS" >&2; exit 1; }
 "$BT/zipalign" -f 4 unsigned.apk aligned.apk
 "$BT/apksigner" sign --ks "$KS" --ks-key-alias "$KEYALIAS" \
   --ks-pass pass:"$STOREPASS" --key-pass pass:"$STOREPASS" \
-  --min-sdk-version 24 --out "$APP/xtg-cloud-pad-1.5.0.apk" aligned.apk
-"$BT/apksigner" verify --verbose --print-certs "$APP/xtg-cloud-pad-1.5.0.apk"
-printf 'APK: %s\n' "$APP/xtg-cloud-pad-1.5.0.apk"
+  --min-sdk-version 24 --out "$APP/xtg-cloud-pad-1.4.0.apk" aligned.apk
+"$BT/apksigner" verify --verbose --print-certs "$APP/xtg-cloud-pad-1.4.0.apk"
+printf 'APK: %s\n' "$APP/xtg-cloud-pad-1.4.0.apk"
