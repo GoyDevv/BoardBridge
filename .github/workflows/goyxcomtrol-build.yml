@@ -89,12 +89,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A goyxcomtrol
-          git commit -m "build goyxcomtrol 1.2.0 latency patch"
+          git commit -m "build goyxcomtrol 1.3.0 latency patch"
           git push origin HEAD:${{ github.ref_name }}
 
       - name: upload apk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: goyxcomtrol-1.2.0-apk
+          name: goyxcomtrol-1.3.0-apk
           path: goyxcomtrol/dist/xtg-cloud-pad-1.3.0.apk
           if-no-files-found: error
