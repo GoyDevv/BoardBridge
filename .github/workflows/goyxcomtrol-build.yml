@@ -59,6 +59,17 @@ jobs:
         working-directory: goyxcomtrol/work/xtg-cloud-pad
         run: node --check assets/bridge.js
 
+      - name: restore SpaceCell signing identity
+        env:
+          SC_SIGN_BUNDLE: ${{ secrets.SC_SIGN_BUNDLE }}
+        run: |
+          set -euo pipefail
+          test -n "$SC_SIGN_BUNDLE"
+          mkdir -p goyxcomtrol/work/xtg-cloud-pad/signing
+          printf '%s' "$SC_SIGN_BUNDLE" | base64 --decode > /tmp/spacecell-signing.zip
+          unzip -q /tmp/spacecell-signing.zip -d goyxcomtrol/work/xtg-cloud-pad/signing
+          test -s goyxcomtrol/work/xtg-cloud-pad/signing/spacecell-release.jks
+
       - name: build apk
         working-directory: goyxcomtrol/work/xtg-cloud-pad
         run: |
