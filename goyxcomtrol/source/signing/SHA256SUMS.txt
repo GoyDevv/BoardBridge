@@ -1,0 +1,4 @@
+b8579c8e74adf1bfc649361a4cfe4df1147a53f8941be9ea53fa539580230b46  spacecell-release.jks
+c28f46069267e6cf089a9b4a02b01869c1ea1be639f086bbcc02c11b734404ad  spacecell-release-key.pem
+04ca06617819e20d835fbdeddcdcd6282f13e6ca47859a835c618aeeff8db460  spacecell-release-cert.pem
+f0bdf049f56c4a07cf2e3b7be0ff4876ce0f4a9e6de815e6ef012406157c8504  spacecell-signing-info.txt
