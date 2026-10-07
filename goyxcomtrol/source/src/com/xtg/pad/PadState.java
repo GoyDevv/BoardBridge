@@ -212,20 +212,42 @@ public final class PadState {
        7..8 button bits, low 16 + high 1
      This avoids JS split()/substring()/number-array allocations on every poll. */
   private final char[] fast = new char[9];
+  private String fastCache = null;
+  private int fastC0 = -1, fastC1 = -1, fastC2 = -1, fastC3 = -1;
+  private int fastT0 = -1, fastT1 = -1, fastBits0 = -1, fastBits1 = -1;
+  private int fastConn = -1;
+
   public String fastWire() {
-    fast[0] = (char) (connected ? 1 : 0);
-    fast[1] = (char) axis12(lx);
-    fast[2] = (char) axis12(ly);
-    fast[3] = (char) axis12(rx);
-    fast[4] = (char) axis12(ry);
-    fast[5] = (char) trigger10(lt);
-    fast[6] = (char) trigger10(rt);
+    int c0 = connected ? 1 : 0;
+    int a0 = axis12(lx), a1 = axis12(ly), a2 = axis12(rx), a3 = axis12(ry);
+    int t0 = trigger10(lt), t1 = trigger10(rt);
     int bits0 = 0, bits1 = 0;
     for (int i = 0; i < 16; i++) if (btn[i]) bits0 |= 1 << i;
     if (btn[16]) bits1 = 1;
+
+    // xCloud polls getGamepads() repeatedly. Reuse the immutable snapshot while
+    // the quantized state is unchanged, avoiding a Java String allocation on every
+    // poll and reducing GC pressure during video playback.
+    if (fastCache != null && fastConn == c0 && fastC0 == a0 && fastC1 == a1
+        && fastC2 == a2 && fastC3 == a3 && fastT0 == t0 && fastT1 == t1
+        && fastBits0 == bits0 && fastBits1 == bits1) {
+      return fastCache;
+    }
+
+    fast[0] = (char) c0;
+    fast[1] = (char) a0;
+    fast[2] = (char) a1;
+    fast[3] = (char) a2;
+    fast[4] = (char) a3;
+    fast[5] = (char) t0;
+    fast[6] = (char) t1;
     fast[7] = (char) bits0;
     fast[8] = (char) bits1;
-    return new String(fast);
+
+    fastC0 = a0; fastC1 = a1; fastC2 = a2; fastC3 = a3;
+    fastT0 = t0; fastT1 = t1; fastBits0 = bits0; fastBits1 = bits1; fastConn = c0;
+    fastCache = new String(fast);
+    return fastCache;
   }
 
   private static int axis12(float v) {
