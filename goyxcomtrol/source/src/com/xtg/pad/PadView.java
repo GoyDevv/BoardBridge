@@ -32,6 +32,8 @@ public final class PadView extends View {
   private float camX, camY;
   private float lsCx, lsCy;              // where a floating left stick was planted
   private boolean lsFloating = false;
+  private boolean visualDirty = false;
+  private boolean visualInvalidatePosted = false;
 
   public boolean edit = false;
   public Ctrl selected = null;
@@ -102,15 +104,16 @@ public final class PadView extends View {
           origin.put(id, new float[]{ x, y, c.x, c.y });
           owner.put(id, c);
           if (onSelect != null) onSelect.run();
-          invalidate();
+          requestVisualUpdate();
           return true;
         }
         owner.put(id, c);
         press(c, id, x, y, e.getEventTime());
-        invalidate();
+        requestVisualUpdate();
         return true;
       }
       case MotionEvent.ACTION_MOVE: {
+        visualDirty = false;
         int np = e.getPointerCount();
         for (int h = 0; h < e.getHistorySize(); h++) {
           long t = e.getHistoricalEventTime(h);
@@ -120,23 +123,15 @@ public final class PadView extends View {
         long t = e.getEventTime();
         for (int i = 0; i < np; i++) move(e.getPointerId(i), e.getX(i), e.getY(i), t);
 
-        // The camera zone is invisible while playing. Redrawing the full-screen
-        // overlay for every camera sample needlessly competes with WebView/XCloud.
-        // Only redraw when a visible control actually changed.
-        boolean redraw = edit;
-        if (!redraw) {
-          for (int i = 0; i < owner.size(); i++) {
-            Ctrl oc = owner.valueAt(i);
-            if (oc != null && oc.kind != Ctrl.ZONE) { redraw = true; break; }
-          }
-        }
-        if (redraw) invalidate();
+        // Camera movement never invalidates the overlay. Visible-stick/trigger/dpad
+        // changes are coalesced to one UI traversal per display frame.
+        if (edit || visualDirty) requestVisualUpdate();
         return true;
       }
       case MotionEvent.ACTION_UP:
       case MotionEvent.ACTION_POINTER_UP: {
         release(e.getPointerId(e.getActionIndex()), e);
-        invalidate();
+        requestVisualUpdate();
         return true;
       }
       case MotionEvent.ACTION_CANCEL: {
@@ -145,11 +140,17 @@ public final class PadView extends View {
         camPointer = -1; lsPointer = -1; lsFloating = false;
         st.camUp();
         if (st.kbm) st.kbmReleaseAll();
-        invalidate();
+        requestVisualUpdate();
         return true;
       }
     }
     return true;
+  }
+
+  private void requestVisualUpdate() {
+    if (visualInvalidatePosted) return;
+    visualInvalidatePosted = true;
+    postInvalidateOnAnimation();
   }
 
   private void press(Ctrl c, int id, float x, float y, long tNs) {
@@ -172,6 +173,7 @@ public final class PadView extends View {
         break;
       case Ctrl.DPAD:
         dpad(c, x, y);
+        visualDirty = true;
         break;
       default:
         hold(c, 1f, true);
@@ -200,6 +202,7 @@ public final class PadView extends View {
       case Ctrl.LZONE:
       case Ctrl.STICK: {
         if (id != lsPointer) return;
+        visualDirty = true;
         Ctrl s = byId("ls");
         float r = rad(s == null ? c : s);
         float dx = (x - lsCx) / r, dy = (y - lsCy) / r;
@@ -215,6 +218,7 @@ public final class PadView extends View {
           float r = rad(c);
           float t = 1f - (cy(c) - y) / (r * 3f);
           hold(c, t < 0.08f ? 0.08f : (t > 1f ? 1f : t), true);
+          visualDirty = true;
         }
     }
   }
@@ -308,6 +312,8 @@ public final class PadView extends View {
 
   /* ---------------------------- drawing ---------------------------- */
   @Override protected void onDraw(Canvas cv) {
+    visualInvalidatePosted = false;
+    visualDirty = false;
     float u = unit();
     int base = (int) (255 * (opacity / 100f));
     if (autoHideS > 0 && !edit) {
