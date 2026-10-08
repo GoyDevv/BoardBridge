@@ -94,146 +94,149 @@ public final class PadState {
   public float touchInterval() { return interval; }
 
   /* ---- camera ---------------------------------------------------------------
-     Relative touch camera. Every digitiser sample is converted immediately to a
-     frame-rate-independent velocity. There is no history window and no delayed
-     renderer queue. A very small asymmetric filter only suppresses digitiser noise;
-     reversals are applied immediately. The 53 ms value remains the hard stop watchdog. */
+     Relative touch camera designed around the contract used by the original
+     touch controller: a short weighted velocity window, evaluated at the instant
+     the game polls getGamepads(). This avoids both per-event spikes and a long
+     history queue while keeping the finger-to-camera response immediate.
 
-  private static final float AIM_DEADZONE = 0.08f;
-  private static final float AIM_NOISE_PX = 0.22f;
+     Important:
+       - ONE sensitivity value controls X and Y identically.
+       - 53 ms is the hard stop watchdog and is never used as a sensitivity factor.
+       - The low-end floor only applies after the velocity window has rejected tiny
+         digitiser chatter, so it preserves micro-aim without turning noise into drift.
+       - All storage is fixed-size arrays. No allocations occur in the touch hot path. */
 
-  private long prevT = 0;
-  private long lastMove = 0;
+  private static final int CAM_N = 96;
+  private static final float CAM_FLOOR = 0.06f;      // 6% output, below xCloud's stick dead zone
+  private static final float CAM_NOISE = 0.012f;     // ignore tiny filtered movement
+  private final long[] camT = new long[CAM_N];       // milliseconds
+  private final float[] camSX = new float[CAM_N];
+  private final float[] camSY = new float[CAM_N];
+  private int camHead = 0, camFill = 0;
+  private long prevT = 0L, lastMove = 0L;
   private float interval = 8f;
-  private float vx = 0f, vy = 0f;
   private boolean camDown = false;
 
   public void camDown(long tMs) {
     camDown = true;
+    camHead = 0;
+    camFill = 0;
     prevT = tMs;
     lastMove = tMs;
-    vx = vy = 0f;
+    interval = 8f;
     rx = ry = 0f;
   }
 
   public void camSample(float dx, float dy, long tMs) {
     if (!camDown) return;
 
-    long dtMs = tMs - prevT;
-    if (dtMs <= 0) dtMs = 1;
+    long dt = tMs - prevT;
+    if (dt <= 0L) dt = 1L;
     prevT = tMs;
 
-    if (dtMs <= 60L) interval += (dtMs - interval) * 0.20f;
-
-    if (dtMs > 120L) {
-      vx = vy = 0f;
-      rx = ry = 0f;
-      lastMove = tMs;
-      return;
+    if (dt > 0L && dt < 40L) {
+      interval += (dt - interval) * 0.25f;
     }
 
-    lastMove = tMs;
+    camT[camHead] = tMs;
+    camSX[camHead] = dx;
+    camSY[camHead] = dy;
+    camHead = (camHead + 1) % CAM_N;
+    if (camFill < CAM_N) camFill++;
 
-    /* Ignore sub-pixel digitiser chatter only when it is genuinely tiny and
-       arrives inside a very short sample interval. Real micro-aim is preserved. */
-    if (dtMs <= 8L && Math.abs(dx) + Math.abs(dy) < AIM_NOISE_PX) {
-      dx = dy = 0f;
-    }
-
-    float dens = density <= 0f ? 1f : density;
-    float invDt = 1000f / (float) dtMs;
-
-    /* Match the proven extension scale: 150 is the neutral reference.
-       One sensitivity value drives both axes, so circles stay circles. */
-    float gain = sens / 150f;
-    float rawX = (dx / dens) * invDt * gain;
-    float rawY = (dy / dens) * invDt * gain;
-    if (invertY) rawY = -rawY;
-
-    /* Very light low-pass filtering. Direction changes bypass the filter so
-       flicks and tracking reversals do not feel delayed. */
-    float dot = rawX * vx + rawY * vy;
-    float alpha;
-    if (dot < -0.0002f) {
-      alpha = 1f;
-    } else {
-      float rawMag2 = rawX * rawX + rawY * rawY;
-      float oldMag2 = vx * vx + vy * vy;
-      alpha = rawMag2 >= oldMag2 ? 0.82f : 0.90f;
-    }
-
-    vx += (rawX - vx) * alpha;
-    vy += (rawY - vy) * alpha;
-
-    float outX = vx;
-    float outY = vy;
-    float m = (float) Math.sqrt(outX * outX + outY * outY);
-
-    if (m > 1f) {
-      float k = 1f / m;
-      outX *= k;
-      outY *= k;
-      m = 1f;
-    }
-
-    /* Compensate the game's low-end stick dead zone without changing direction.
-       This keeps slow aim alive while avoiding a jump when the finger first moves. */
-    if (m > 0f && m < AIM_DEADZONE) {
-      float k = AIM_DEADZONE / m;
-      outX *= k;
-      outY *= k;
-    } else if (m == 0f) {
-      outX = outY = 0f;
-    }
-
-    rx = clamp(outX);
-    ry = clamp(outY);
+    if (dx != 0f || dy != 0f) lastMove = tMs;
   }
 
   public void camUp() {
     camDown = false;
     rx = ry = 0f;
-    vx = vy = 0f;
+    camHead = 0;
+    camFill = 0;
+    prevT = 0L;
+    lastMove = 0L;
   }
 
+  /** Called immediately before the WebView reads the virtual gamepad. */
   public void camCompute(long nowMs) {
     if (!camDown) {
       rx = ry = 0f;
       return;
     }
 
-    long age = nowMs - lastMove;
-    if (age >= stillMs) {
-      /* 53 ms stays the exact hard cutoff. */
+    long ageMs = nowMs - lastMove;
+    if (ageMs >= stillMs) {
       rx = ry = 0f;
-      vx = vy = 0f;
       return;
     }
 
-    /* Do not hold full stick strength for the whole watchdog window.
-       Fade quickly after the last sample, which removes visible coast/drift
-       without shortening the requested 53 ms safety threshold. */
-    float factor = 1f;
-    if (age > 7L) {
-      float u = (age - 7f) / Math.max(1f, stillMs - 7f);
-      factor = 1f - u;
-      factor *= factor;
+    /* The averaging window is intentionally short. It removes single-sample
+       timestamp spikes without turning the camera into a 40-60 ms trailing filter. */
+    float w = interval * 2.0f;
+    if (w < 10f) w = 10f;
+    else if (w > 32f) w = 32f;
+    long cut = nowMs - (long) w;
+
+    float sumX = 0f, sumY = 0f, sumT = 0f;
+    int considered = 0;
+
+    for (int i = 0; i < camFill; i++) {
+      int k = (camHead - 1 - i + CAM_N) % CAM_N;
+      long t = camT[k];
+      if (t < cut) break;
+
+      float sampleAge = nowMs - t;
+      float wt = 0.30f + 0.70f * clamp01(1f - sampleAge / w);
+      sumX += camSX[k] * wt;
+      sumY += camSY[k] * wt;
+
+      float dt = (i + 1 < camFill)
+          ? (float) (t - camT[(camHead - 2 - i + CAM_N) % CAM_N])
+          : interval;
+      if (dt <= 0f || dt > 40f) dt = interval;
+      sumT += dt * wt;
+      considered++;
     }
 
-    float outX = vx * factor;
-    float outY = vy * factor;
-    float m = (float) Math.sqrt(outX * outX + outY * outY);
-    if (m > 1f) {
-      float k = 1f / m;
+    if (considered == 0 || sumT <= 0f) {
+      rx = ry = 0f;
+      return;
+    }
+
+    float dens = density <= 0f ? 1f : density;
+    float gain = sens / 150f;
+
+    /* Same gain on both axes. No Y multiplier, no aspect compensation and no
+       nonlinear curve, so a circular finger path stays circular. */
+    float outX = (sumX / sumT) / dens * gain;
+    float outY = (sumY / sumT) / dens * gain;
+    if (invertY) outY = -outY;
+
+    float mag = (float) Math.sqrt(outX * outX + outY * outY);
+    if (mag < CAM_NOISE) {
+      outX = outY = 0f;
+    } else if (mag < CAM_FLOOR) {
+      float k = CAM_FLOOR / mag;
       outX *= k;
       outY *= k;
     }
+
+    float max = (float) Math.sqrt(outX * outX + outY * outY);
+    if (max > 1f) {
+      float k = 1f / max;
+      outX *= k;
+      outY *= k;
+    }
+
     rx = clamp(outX);
     ry = clamp(outY);
   }
 
   private static float clamp(float v) {
     return v < -1f ? -1f : (v > 1f ? 1f : v);
+  }
+
+  private static float clamp01(float v) {
+    return v < 0f ? 0f : (v > 1f ? 1f : v);
   }
 
   /* ---- legacy wire format for compatibility/debug -------------------------------- */
