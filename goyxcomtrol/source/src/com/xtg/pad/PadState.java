@@ -235,10 +235,6 @@ public final class PadState {
     return v < -1f ? -1f : (v > 1f ? 1f : v);
   }
 
-  private static float clamp01(float v) {
-    return v < 0f ? 0f : (v > 1f ? 1f : v);
-  }
-
   /* ---- legacy wire format for compatibility/debug -------------------------------- */
   private final StringBuilder sb = new StringBuilder(160);
   public String wire() {
