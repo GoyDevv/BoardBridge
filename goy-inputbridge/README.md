@@ -13,3 +13,5 @@ Build from the archive root:
 CI uses the runner's Android SDK command-line tools directly.
 
 CI SDK check updated.
+
+AndroidX enabled for the Shizuku provider dependency.
