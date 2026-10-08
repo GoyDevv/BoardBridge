@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message != 'build goyxcomtrol 1.5.0 latency patch'
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message != 'build goyxcomtrol 1.6.0 latency patch'
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -54,7 +54,7 @@ jobs:
             curl -fL --retry 3 "$base/$a/13.1.5/$a-13.1.5.aar" -o "goyxcomtrol/work/xtg-cloud-pad/android/libs/$a.aar"
             unzip -p "goyxcomtrol/work/xtg-cloud-pad/android/libs/$a.aar" classes.jar > "goyxcomtrol/work/xtg-cloud-pad/android/libs/$a.jar"
           done
-          curl -fL --retry 3 "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.5.0/annotation-1.5.0.jar"             -o goyxcomtrol/work/xtg-cloud-pad/android/libs/annotation.jar
+          curl -fL --retry 3 "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.6.0/annotation-1.6.0.jar"             -o goyxcomtrol/work/xtg-cloud-pad/android/libs/annotation.jar
 
       - name: validate javascript
         working-directory: goyxcomtrol/work/xtg-cloud-pad
@@ -79,20 +79,20 @@ jobs:
         run: |
           chmod +x build.sh
           ./build.sh
-          test -s xtg-cloud-pad-1.5.0.apk
+          test -s xtg-cloud-pad-1.6.0.apk
 
       - name: verify apk
         working-directory: goyxcomtrol/work/xtg-cloud-pad
         run: |
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose xtg-cloud-pad-1.5.0.apk
-          sha256sum xtg-cloud-pad-1.5.0.apk > SHA256SUMS.txt
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose xtg-cloud-pad-1.6.0.apk
+          sha256sum xtg-cloud-pad-1.6.0.apk > SHA256SUMS.txt
 
       - name: stage source and apk
         run: |
           rm -rf goyxcomtrol/source goyxcomtrol/dist
           mkdir -p goyxcomtrol/source goyxcomtrol/dist
           cp -a goyxcomtrol/work/xtg-cloud-pad/. goyxcomtrol/source/
-          cp goyxcomtrol/work/xtg-cloud-pad/xtg-cloud-pad-1.5.0.apk goyxcomtrol/dist/
+          cp goyxcomtrol/work/xtg-cloud-pad/xtg-cloud-pad-1.6.0.apk goyxcomtrol/dist/
           cp goyxcomtrol/work/xtg-cloud-pad/SHA256SUMS.txt goyxcomtrol/dist/
           rm -rf goyxcomtrol/source/build goyxcomtrol/source/android/libs goyxcomtrol/source/signing
           find goyxcomtrol/source -name '*.apk' -delete
@@ -104,12 +104,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A goyxcomtrol
-          git commit -m "build goyxcomtrol 1.5.0 latency patch"
+          git commit -m "build goyxcomtrol 1.6.0 latency patch"
           git push origin HEAD:${{ github.ref_name }}
 
       - name: upload apk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: goyxcomtrol-1.5.0-apk
-          path: goyxcomtrol/dist/xtg-cloud-pad-1.5.0.apk
+          name: goyxcomtrol-1.6.0-apk
+          path: goyxcomtrol/dist/xtg-cloud-pad-1.6.0.apk
           if-no-files-found: error
