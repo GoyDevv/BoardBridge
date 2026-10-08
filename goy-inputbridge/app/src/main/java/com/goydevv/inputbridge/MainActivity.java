@@ -3,9 +3,13 @@ package com.goydevv.inputbridge;
 import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -15,87 +19,180 @@ import android.widget.Toast;
 public final class MainActivity extends Activity {
     private BridgeClient bridge;
     private TextView status;
+    private TextView badge;
 
-    @Override public void onCreate(Bundle state) {
+    private final int BG=Color.rgb(9,10,14);
+    private final int CARD=Color.rgb(20,22,29);
+    private final int TEXT=Color.rgb(244,245,248);
+    private final int MUTED=Color.rgb(157,162,174);
+    private final int ACCENT=Color.rgb(115,92,255);
+
+    @Override public void onCreate(Bundle state){
         super.onCreate(state);
         bridge=BridgeClient.get(this);
         build();
         refresh();
     }
 
-    @Override protected void onResume() {
+    @Override protected void onResume(){
         super.onResume();
-        if (status != null) refresh();
+        if(status!=null)refresh();
     }
 
-    private void build() {
+    private void build(){
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(BG);
+
         LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18),dp(24),dp(18),dp(24));
-        root.setBackgroundColor(Color.rgb(10,10,14));
+        root.setPadding(dp(20),dp(22),dp(20),dp(28));
+        scroll.addView(root);
 
-        TextView title=text("XCLOUD INPUT BRIDGE",28,Color.WHITE);
-        title.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(title,new LinearLayout.LayoutParams(-1,dp(58)));
+        TextView eyebrow=text("GOYDEVV  /  INPUT",12,ACCENT);
+        eyebrow.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        root.addView(eyebrow);
 
-        TextView sub=text("Shizuku • relative mouse • keyboard",13,Color.LTGRAY);
-        root.addView(sub,new LinearLayout.LayoutParams(-1,dp(40)));
+        TextView title=text("Xcloud Input Bridge",30,TEXT);
+        title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        root.addView(title,lp(1,dp(42)));
 
-        status=text("",12,Color.LTGRAY);
-        root.addView(status,new LinearLayout.LayoutParams(-1,dp(90)));
+        TextView subtitle=text("Low-latency Shizuku keyboard + relative mouse for cloud gaming.",14,MUTED);
+        root.addView(subtitle,lp(1,dp(46)));
 
-        Button shizuku=button("OPEN SHIZUKU SETTINGS");
-        shizuku.setOnClickListener(v->{try{startActivity(new Intent("moe.shizuku.manager.intent.action.MANAGER"));}catch(Exception e){Toast.makeText(this,"Open Shizuku manually",Toast.LENGTH_SHORT).show();}});
-        root.addView(shizuku);
+        LinearLayout statusCard=card();
+        LinearLayout statusRow=new LinearLayout(this);
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        badge=text("CHECKING",11,TEXT);
+        badge.setGravity(Gravity.CENTER);
+        badge.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        statusRow.addView(badge,badgeLp());
+        TextView live=text(" Bridge status",15,TEXT);
+        live.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        statusRow.addView(live);
+        statusCard.addView(statusRow);
+        status=text("",13,MUTED);
+        status.setPadding(0,dp(12),0,0);
+        statusCard.addView(status);
+        root.addView(statusCard,lp(1,dp(150)));
 
-        Button overlay=button("ALLOW DRAW OVER OTHER APPS");
-        overlay.setOnClickListener(v->startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,android.net.Uri.parse("package:"+getPackageName()))));
-        root.addView(overlay);
+        TextView setup=text("SETUP",12,MUTED);
+        setup.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        root.addView(setup,lp(1,dp(34)));
 
-        Button start=button("START INPUT OVERLAY");
-        start.setOnClickListener(v->startBridge());
-        root.addView(start);
+        root.addView(action("1", "Shizuku permission", "Start or grant the injector service.", v->openShizuku()));
+        root.addView(action("2", "Overlay permission", "Required for the landscape controls.", v->openOverlayPermission()));
+        root.addView(action("3", "Start input", "Enable the landscape mouse + controls.", v->startBridge()));
+        root.addView(action("4", "Stop input", "Release all held keys/buttons and stop.", v->stopBridge()));
 
-        Button stop=button("STOP INPUT OVERLAY");
-        stop.setOnClickListener(v->{stopService(new Intent(this,OverlayService.class));bridge.releaseAll();refresh();});
-        root.addView(stop);
+        TextView controls=text("CONTROLS",12,MUTED);
+        controls.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        root.addView(controls,lp(1,dp(34)));
 
-        Button editor=button("CUSTOM CONTROLS");
+        Button editor=primary("Open Custom Controls");
         editor.setOnClickListener(v->startActivity(new Intent(this,ControlEditorActivity.class)));
-        root.addView(editor);
+        root.addView(editor,lp(1,dp(58)));
 
-        ScrollView scroll=new ScrollView(this);
-        TextView info=text(
-            "\nRIGHT SIDE = RELATIVE MOUSE\n"
-            +"No dead-zone, no smoothing, no integer rounding.\n\n"
-            +"Use the editor to add buttons, joystick, d-pad and drawers.\n"
-            +"Up to four input actions can be stored on each control.",
-            13,Color.rgb(185,185,195));
-        info.setPadding(0,dp(12),0,dp(12));
-        scroll.addView(info);
-        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout tip=card();
+        TextView tipTitle=text("Landscape mode",15,TEXT);
+        tipTitle.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        tip.addView(tipTitle);
+        tip.addView(text("The overlay is completely disabled in portrait. In landscape, use HIDE to collapse it to a small SHOW handle. The right side is a true relative mouse surface with a visible software cursor.",13,MUTED),lp(1,dp(78)));
+        root.addView(tip,lp(1,dp(135)));
 
-        setContentView(root);
+        setContentView(scroll);
     }
 
-    private void startBridge() {
-        if (!bridge.isShizukuRunning()) {toast("Shizuku is not running");return;}
-        if (!bridge.hasPermission()) {bridge.requestPermission();toast("Grant Shizuku permission, then tap start again");return;}
-        if (!Settings.canDrawOverlays(this)) {toast("Allow overlay permission first");return;}
-        if (!bridge.startService()) {toast("Could not bind Shizuku user service");return;}
+    private View action(String n,String title,String sub,View.OnClickListener listener){
+        LinearLayout row=card();
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        TextView num=text(n,13,TEXT);
+        num.setGravity(Gravity.CENTER);
+        num.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        num.setBackground(round(ACCENT,dp(18)));
+        row.addView(num,badgeLp());
+        LinearLayout words=new LinearLayout(this);
+        words.setOrientation(LinearLayout.VERTICAL);
+        words.setPadding(dp(14),0,0,0);
+        TextView t=text(title,15,TEXT);t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        TextView s=text(sub,12,MUTED);
+        words.addView(t);words.addView(s,lp(1,dp(32)));
+        row.addView(words,lp(1,dp(62)));
+        row.setOnClickListener(listener);
+        return row;
+    }
+
+    private void openShizuku(){
+        try{startActivity(new Intent("moe.shizuku.manager.intent.action.MANAGER"));}
+        catch(Exception e){toast("Open Shizuku manually.");}
+    }
+
+    private void openOverlayPermission(){
+        try{startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())));}
+        catch(Exception e){toast("Open Android overlay permission manually.");}
+    }
+
+    private void startBridge(){
+        if(!bridge.isShizukuRunning()){toast("Shizuku is not running.");return;}
+        if(!bridge.hasPermission()){bridge.requestPermission();toast("Grant Shizuku permission, then tap Start again.");return;}
+        if(!Settings.canDrawOverlays(this)){toast("Allow overlay permission first.");return;}
+        if(!bridge.startService()){toast("Could not bind the Shizuku injector.");return;}
         Intent i=new Intent(this,OverlayService.class);
         if(android.os.Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);
-        toast("Overlay started");
+        toast("Input bridge started.");
         refresh();
     }
 
-    private void refresh() {
-        boolean s=bridge.isShizukuRunning(), p=bridge.hasPermission(), o=Settings.canDrawOverlays(this);
-        status.setText("Shizuku: "+(s?"OK":"MISSING")+"\nPermission: "+(p?"OK":"MISSING")+"\nOverlay: "+(o?"OK":"MISSING")+"\nInjector: "+bridge.status()+"\nUID: "+bridge.uid());
+    private void stopBridge(){
+        stopService(new Intent(this,OverlayService.class));
+        bridge.releaseAll();
+        bridge.stopService();
+        toast("Input bridge stopped.");
+        refresh();
     }
 
-    private Button button(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);return b;}
-    private TextView text(String s,int size,int color){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(color);return t;}
+    private void refresh(){
+        boolean s=bridge.isShizukuRunning(),p=bridge.hasPermission(),o=Settings.canDrawOverlays(this);
+        String text="Shizuku       "+(s?"READY":"NOT RUNNING")+
+                "\nPermission   "+(p?"GRANTED":"NOT GRANTED")+
+                "\nOverlay       "+(o?"GRANTED":"NOT GRANTED")+
+                "\nInjector      "+bridge.status();
+        status.setText(text);
+        boolean ready=s&&p&&o;
+        badge.setText(ready?"READY":"SETUP");
+        badge.setBackground(round(ready?Color.rgb(39,160,104):Color.rgb(110,82,20),dp(18)));
+    }
+
+    private Button primary(String s){
+        Button b=new Button(this);b.setText(s);b.setTextColor(TEXT);b.setTextSize(14);b.setAllCaps(false);
+        b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);b.setBackground(round(ACCENT,dp(16)));return b;
+    }
+
+    private LinearLayout card(){
+        LinearLayout l=new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        l.setPadding(dp(16),dp(14),dp(16),dp(14));
+        l.setBackground(round(CARD,dp(20)));
+        return l;
+    }
+
+    private TextView text(String s,float size,int color){
+        TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(color);return t;
+    }
+
+    private GradientDrawable round(int color,int radius){
+        GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(radius);return g;
+    }
+
+    private LinearLayout.LayoutParams lp(float weight,int height){
+        return new LinearLayout.LayoutParams(-1,height,weight==1?0:weight);
+    }
+
+    private LinearLayout.LayoutParams badgeLp(){
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(56),dp(36));
+        p.gravity=Gravity.CENTER_VERTICAL;return p;
+    }
+
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
 }
