@@ -1,1 +1,1 @@
-933de71e01964c730e9a0ca80bd251a608d105b421c77da72dd8e5fc6d26a1fc  xtg-cloud-pad-1.5.0.apk
+c5a72abc95c1b631f45d2ee5821f8c6ae7e2e899052d713eb6c57171c28ec690  xtg-cloud-pad-1.6.0.apk
