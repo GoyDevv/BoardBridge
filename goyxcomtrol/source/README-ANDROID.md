@@ -1,4 +1,4 @@
-# XTG Cloud Pad 1.5.0 - Android
+# XTG Cloud Pad 1.6.0 - Android
 
 An on-screen Xbox controller for Android with two completely different ways of reaching
 the game, a full Material You interface, and your Warzone layout built in.
