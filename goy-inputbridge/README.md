@@ -19,3 +19,5 @@ AndroidX enabled for the Shizuku provider dependency.
 BuildConfig and AIDL generation enabled for the Android module.
 
 Injector compile cleanup complete.
+
+Version 1.1.0: landscape-only overlay, software cursor, hide/show handle, redesigned UI.
