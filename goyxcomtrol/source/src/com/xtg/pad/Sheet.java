@@ -274,18 +274,16 @@ public final class Sheet extends FrameLayout {
       title(s, "Aim");
       slider(s, "Sensitivity", 10, 400, st.sens, "%", new IntCb() {
         @Override public void on(int v) { st.sens = v; pr.putInt("sens", v); } });
-      note(s, "One sensitivity controls both horizontal and vertical aim equally. "
-        + "There is no separate vertical multiplier, so diagonal and circular finger motion "
-        + "stays geometrically consistent.");
+      note(s, "One sensitivity controls horizontal and vertical aim equally. There is no separate "
+        + "vertical multiplier. A small built-in aim floor compensates xCloud's low-end stick "
+        + "dead zone without changing the direction of your movement.");
       if (st.kbm) {
         slider(s, "Mouse sensitivity", 10, 600, st.mouseSens, "%", new IntCb() {
           @Override public void on(int v) { st.mouseSens = v; pr.putInt("mouseSens", v); } });
         note(s, "100% is one mouse pixel per screen pixel of thumb travel.");
       }
-      slider(s, "Stop threshold", 10, 80, st.stillMs, " ms", new IntCb() {
-        @Override public void on(int v) { st.stillMs = v; pr.putInt("stillMs", v); } });
-      note(s, "The longest the camera may keep moving on your last known thumb speed. Lower "
-        + "stops sooner; too low stutters when a frame arrives late. 53 ms is the sweet spot.");
+      note(s, "Camera response is unified on both axes. The input estimator uses a short weighted "
+        + "touch window to reject digitiser jitter, and the 53 ms stop watchdog is fixed.");
       toggle(s, "Invert vertical", st.invertY, new BoolCb() {
         @Override public void on(boolean v) { st.invertY = v; pr.putBool("invY", v); } });
       toggle(s, "Debug HUD", pv.hud, new BoolCb() {
