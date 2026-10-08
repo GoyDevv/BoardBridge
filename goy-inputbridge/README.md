@@ -9,3 +9,5 @@ Build from the archive root:
     tar -xzf source.tar.gz
     cd inputbridge
     ./gradlew assembleDebug
+
+CI uses the runner's Android SDK command-line tools directly.
