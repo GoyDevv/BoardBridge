@@ -17,3 +17,5 @@ CI SDK check updated.
 AndroidX enabled for the Shizuku provider dependency.
 
 BuildConfig and AIDL generation enabled for the Android module.
+
+Injector compile cleanup complete.
