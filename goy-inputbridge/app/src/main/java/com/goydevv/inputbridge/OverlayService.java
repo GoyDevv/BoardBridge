@@ -250,20 +250,20 @@ public final class OverlayService extends Service {
 
             if(action==MotionEvent.ACTION_DOWN){
                 if(isHideButton(x,y)){setControlsVisible(false);performClick();return true;}
+                ControlModel.Control c=find(x/getWidth(),y/getHeight());
+                if(c!=null){active.put(pid,c);apply(c,true,x,y);return true;}
                 if(isMousePad(x,y)){
                     mousePadActive=true;mousePointerId=pid;lastMouseX=x;lastMouseY=y;return true;
                 }
-                ControlModel.Control c=find(x/getWidth(),y/getHeight());
-                if(c!=null){active.put(pid,c);apply(c,true,x,y);return true;}
                 return true;
             }
 
             if(action==MotionEvent.ACTION_POINTER_DOWN){
+                ControlModel.Control c=find(x/getWidth(),y/getHeight());
+                if(c!=null){active.put(pid,c);apply(c,true,x,y);return true;}
                 if(isMousePad(x,y)){
                     mousePadActive=true;mousePointerId=pid;lastMouseX=x;lastMouseY=y;return true;
                 }
-                ControlModel.Control c=find(x/getWidth(),y/getHeight());
-                if(c!=null){active.put(pid,c);apply(c,true,x,y);}
                 return true;
             }
 
@@ -302,7 +302,7 @@ public final class OverlayService extends Service {
 
         private boolean isHideButton(float x,float y){return x<dp(125)&&y<dp(75);}
         private boolean isMousePad(float x,float y){
-            return x>getWidth()*.49f && y>dp(70) && y<getHeight()*.72f;
+            return x>getWidth()*.49f && y>dp(72) && y<getHeight()*.72f;
         }
 
         private ControlModel.Control find(float x,float y){
