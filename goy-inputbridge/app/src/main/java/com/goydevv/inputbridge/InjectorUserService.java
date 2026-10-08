@@ -6,6 +6,7 @@ import android.content.res.Resources;
 import android.os.IBinder;
 import android.os.SystemClock;
 import android.view.InputDevice;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 
@@ -88,15 +89,15 @@ public final class InjectorUserService extends Service {
 
     private boolean inject(android.view.InputEvent event) {
         if (injectMethod == null || inputManager == null) {
-            event.recycle();
+            if (event instanceof MotionEvent) ((MotionEvent) event).recycle();
             return false;
         }
         try {
             boolean ok = Boolean.TRUE.equals(injectMethod.invoke(inputManager, event, 0));
-            event.recycle();
+            if (event instanceof MotionEvent) ((MotionEvent) event).recycle();
             return ok;
         } catch (Throwable t) {
-            event.recycle();
+            if (event instanceof MotionEvent) ((MotionEvent) event).recycle();
             return false;
         }
     }
