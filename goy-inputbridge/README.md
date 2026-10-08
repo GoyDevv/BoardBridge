@@ -11,3 +11,5 @@ Build from the archive root:
     ./gradlew assembleDebug
 
 CI uses the runner's Android SDK command-line tools directly.
+
+CI SDK check updated.
